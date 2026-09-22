@@ -7,7 +7,14 @@ import tests.common.model.TestData;
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.Method;
+import java.net.URISyntaxException;
+import java.net.URL;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Stream;
 
 public class DataProviders {
 
@@ -18,9 +25,33 @@ public class DataProviders {
      * Тестовые данные читаются из classpath:testdata/<имя тестового метода>.json.
      * Файл может содержать один объект TestData или массив объектов.
      */
-    @DataProvider(name = "MainDP")
+@DataProvider(name = "MainDP")
     public static Object[][] mainDP(Method method) throws IOException {
-        String resource = TESTDATA_DIR + method.getName() + ".json";
+        return loadFile(TESTDATA_DIR + method.getName() + ".json");
+    }
+
+    /**
+     * Вычитка всех тест-кейсов из всех json-файлов каталога testdata/api/
+     * (каждый файл — один объект TestData или массив объектов).
+     * Позволяет держать много кейсов в отдельных небольших файлах и прогонять
+     * их одним универсальным методом.
+     */
+    @DataProvider(name = "AllFilesDP")
+    public static Object[][] allFilesDP() throws IOException, URISyntaxException {
+        URL dirUrl = DataProviders.class.getClassLoader().getResource(TESTDATA_DIR + "api");
+        if (dirUrl == null) {
+            throw new IllegalStateException("Test data directory not found: " + TESTDATA_DIR + "api");
+        }
+        List<Object[]> rows = new ArrayList<>();
+        try (Stream<Path> paths = Files.list(Paths.get(dirUrl.toURI()))) {
+            for (Path path : paths.filter(p -> p.toString().endsWith(".json")).toList()) {
+                rows.addAll(List.of(loadFile(TESTDATA_DIR + "api/" + path.getFileName())));
+            }
+        }
+        return rows.toArray(new Object[0][]);
+    }
+
+    private static Object[][] loadFile(String resource) throws IOException {
         try (InputStream is = DataProviders.class.getClassLoader().getResourceAsStream(resource)) {
             if (is == null) {
                 throw new IllegalStateException("Test data file not found: " + resource);

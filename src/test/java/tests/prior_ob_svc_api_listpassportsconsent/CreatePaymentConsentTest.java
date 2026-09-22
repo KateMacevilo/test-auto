@@ -2,6 +2,7 @@ package tests.prior_ob_svc_api_listpassportsconsent;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import io.qameta.allure.Feature;
 import io.qameta.allure.Link;
 import io.qameta.allure.Story;
 import io.restassured.response.Response;
@@ -23,16 +24,19 @@ import java.util.UUID;
 
 import static io.qameta.allure.Allure.step;
 
+/**
+ * Сценарии создания согласия с состоянием (несколько зависимых запросов, проверки БД
+ * между ними). Простые кейсы «один запрос → один ответ» прогоняются универсальным
+ * методом Tests.createConsent из файлов testdata/api/.
+ */
 @Slf4j
+@Feature("Создание согласия на инициирование платежа")
 public class CreatePaymentConsentTest extends AbstractApiTest {
 
     private static final String CONFLUENCE = "https://confluence.priorbank.by:8443/display/API/prior-ob-svc-api-listpassportsconsent";
 
     private static final String EXPECTED_ERROR_CODE = "BY.PRIORBANK.Rules.IllegalAttemptOfCreation";
     private static final int EXPECTED_CONFLICT_STATUS = 409;
-    private static final int EXPECTED_BAD_REQUEST_STATUS = 400;
-    private static final String FIELD_INVALID_ERROR_CODE = "BY.NBRB.Field.Invalid";
-    private static final String AMOUNT_PATH = "data.initiation.amount";
     private static final BigDecimal AMOUNT_IN_DB = new BigDecimal("150.00");
     private static final BigDecimal AMOUNT_MISMATCH = new BigDecimal("999.99");
 
@@ -101,58 +105,6 @@ public class CreatePaymentConsentTest extends AbstractApiTest {
         }
     }
 
-    @Link(name = "prior-ob-svc-api-listpassportsconsent [Confluence]", url = CONFLUENCE)
-    @Story("Создание согласия (listPassports): негативные заголовки")
-    @Test(dataProvider = "MainDP", dataProviderClass = DataProviders.class)
-    public void create_consent_negative_accept_not_acceptable(TestData testData) {
-        String idempotencyKey = uniqueIdempotencyKey();
-
-        // Шаг 1: POST с изменённым заголовком Accept=application/xml (заголовок задан в testData)
-        Response response = step("Шаг 1: POST с заголовком Accept=application/xml",
-                () -> postConsent(testData.getInput(), idempotencyKey));
-
-        // Шаг 2: проверка БД — записей не создано
-        step("Шаг 2: проверка БД — записей не создано",
-                () -> assertNoConsentByIdempotencyKey(idempotencyKey));
-
-        // Шаг 3: ожидаемый ответ 406 Not Acceptable
-        step("Шаг 3: ожидаемый ответ 406 Not Acceptable",
-                () -> Assertions.verifyStatusCode(response, testData.getExpected().getStatusCode()));
-    }
-
-    @Link(name = "prior-ob-svc-api-listpassportsconsent [Confluence]", url = CONFLUENCE)
-    @Story("Создание согласия (listPassports): негативные суммы")
-    @Test(dataProvider = "MainDP", dataProviderClass = DataProviders.class)
-    public void create_consent_negative_amount_boundaries(TestData testData) {
-        verifyAmountRejected(testData);
-    }
-
-    @Link(name = "prior-ob-svc-api-listpassportsconsent [Confluence]", url = CONFLUENCE)
-    @Story("Создание согласия (listPassPorts): негативные суммы")
-    @Test(dataProvider = "MainDP", dataProviderClass = DataProviders.class)
-    public void create_consent_negative_amount_more_than_2_decimals(TestData testData) {
-        verifyAmountRejected(testData);
-    }
-
-    /**
-     * Общая проверка негативных кейсов по amount: запрос → в БД записей нет → 400 Bad Request
-     * с errorCode BY.NBRB.Field.Invalid и path=data.initiation.amount.
-     */
-    private void verifyAmountRejected(TestData testData) {
-        String idempotencyKey = uniqueIdempotencyKey();
-
-        Response response = step("Шаг 1: POST с некорректным initiation.amount",
-                () -> postConsent(testData.getInput(), idempotencyKey));
-
-        step("Шаг 2: проверка БД — записей не создано",
-                () -> assertNoConsentByIdempotencyKey(idempotencyKey));
-
-        step("Шаг 3: ожидаемый ответ 400 Bad Request (BY.NBRB.Field.Invalid, path=data.initiation.amount)", () -> {
-            Assertions.verifyStatusCode(response, EXPECTED_BAD_REQUEST_STATUS);
-            Assertions.verifyResponseParam(response, testData.getExpected().getParams());
-        });
-    }
-
     // --- Общие шаги ---
 
     private Response postConsent(Input input, String idempotencyKey) {
@@ -178,11 +130,6 @@ public class CreatePaymentConsentTest extends AbstractApiTest {
         Assert.assertEquals(amountInDb, AMOUNT_IN_DB,
                 "Saved amount in DB mismatch for consent " + uuid);
         return uuid;
-    }
-
-    private void assertNoConsentByIdempotencyKey(String idempotencyKey) {
-        Assert.assertTrue(dbClient.findConsentUuidByIdempotencyKey(idempotencyKey).isEmpty(),
-                "No consent records expected in DB for idempotency key " + idempotencyKey);
     }
 
     private void cleanupConsent(UUID consentUuid) {

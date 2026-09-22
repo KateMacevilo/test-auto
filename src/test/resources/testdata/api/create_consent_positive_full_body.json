@@ -3,7 +3,7 @@
   "input": {
     "contentType": "application/json;charset=UTF-8",
     "headers": {
-      "x-idempotency-key": "idem-key-create-001",
+      "x-idempotency-key": "idem-key-create-pos-001",
       "correlationId": "corr-create-001"
     },
     "body": {
@@ -51,6 +51,7 @@
   },
   "expected": {
     "statusCode": 201,
+    "verifySchema": true,
     "params": {
       "data.status": "AwaitingAuthorisation",
       "data.initiation.amount": 150.00,
