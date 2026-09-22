@@ -1,0 +1,56 @@
+{
+  "name": "Создание согласия: негатив — заголовок Accept с недопустимым значением (application/xml), ответ 406 Not Acceptable",
+  "input": {
+    "contentType": "application/json;charset=UTF-8",
+    "headers": {
+      "Accept": "application/xml",
+      "x-idempotency-key": "idem-key-neg-accept-001",
+      "correlationId": "corr-neg-accept-001"
+    },
+    "body": {
+      "listPassportsConsentRequest": {
+        "data": {
+          "initiation": {
+            "instructionIdentification": "INST-20260914-004",
+            "endToEndIdentification": "01.20260914.PAY123459",
+            "localInstrument": "BY.NBRB.BISS.NORMAL",
+            "requestedExecutionDate": "2026-09-15",
+            "amount": 150.00,
+            "currency": "BYN",
+            "debtor": {
+              "name": "Иванов Иван Иванович",
+              "countryOfResidence": "BY"
+            },
+            "debtorAccount": {
+              "schemeName": "IBAN",
+              "identification": "BY00PRIOR3012123456789012"
+            },
+            "listPassportData": [
+              {
+                "name": "Паспорт",
+                "identification": "MP1234567",
+                "issuer": "МВД РБ",
+                "amount": 150.00
+              }
+            ],
+            "remittanceInformation": {
+              "categoryPurposeCode": "SUPP",
+              "proprietaryPurpose": "0SALA1.00",
+              "unstructured": "Оплата услуги"
+            },
+            "creditor": {
+              "name": "ООО «Кредитор»"
+            },
+            "creditorAccount": {
+              "schemeName": "IBAN",
+              "identification": "BY00PRIOR3012987654321098"
+            }
+          }
+        }
+      }
+    }
+  },
+  "expected": {
+    "statusCode": 406
+  }
+}

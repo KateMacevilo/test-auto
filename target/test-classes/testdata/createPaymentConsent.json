@@ -1,0 +1,60 @@
+{
+  "name": "Создание согласия (listPassports): позитив — полный валидный запрос, ответ 201",
+  "input": {
+    "contentType": "application/json;charset=UTF-8",
+    "headers": {
+      "x-idempotency-key": "idem-key-create-001",
+      "correlationId": "corr-create-001"
+    },
+    "body": {
+      "listPassportsConsentRequest": {
+        "data": {
+          "initiation": {
+            "instructionIdentification": "INST-20260914-001",
+            "endToEndIdentification": "01.20260914.PAY123456",
+            "localInstrument": "BY.NBRB.BISS.NORMAL",
+            "requestedExecutionDate": "2026-09-15",
+            "amount": 150.00,
+            "currency": "BYN",
+            "debtor": {
+              "name": "Иванов Иван Иванович",
+              "countryOfResidence": "BY"
+            },
+            "debtorAccount": {
+              "schemeName": "IBAN",
+              "identification": "BY00PRIOR3012123456789012"
+            },
+            "listPassportData": [
+              {
+                "name": "Паспорт",
+                "identification": "MP1234567",
+                "issuer": "МВД РБ",
+                "amount": 150.00
+              }
+            ],
+            "remittanceInformation": {
+              "categoryPurposeCode": "SUPP",
+              "proprietaryPurpose": "0SALA1.00",
+              "unstructured": "Оплата услуги"
+            },
+            "creditor": {
+              "name": "ООО «Кредитор»"
+            },
+            "creditorAccount": {
+              "schemeName": "IBAN",
+              "identification": "BY00PRIOR3012987654321098"
+            }
+          }
+        }
+      }
+    }
+  },
+  "expected": {
+    "statusCode": 201,
+    "params": {
+      "data.status": "AwaitingAuthorisation",
+      "data.initiation.amount": 150.00,
+      "data.initiation.currency": "BYN"
+    }
+  }
+}

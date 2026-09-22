@@ -1,0 +1,10 @@
+{
+  "name": "Health check: GET /actuator/health -> 200 UP",
+  "input": {},
+  "expected": {
+    "statusCode": 200,
+    "params": {
+      "status": "UP"
+    }
+  }
+}
