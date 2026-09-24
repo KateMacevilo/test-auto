@@ -4,7 +4,6 @@
     <test name="api-tests">
         <classes>
             <class name="tests.Tests"/>
-            <class name="tests.prior_ob_svc_api_listpassportsconsent.CreatePaymentConsentTest"/>
         </classes>
     </test>
 </suite>

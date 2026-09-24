@@ -1,6 +1,5 @@
 package tests.common.model;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import lombok.Data;
 
 import java.util.Map;
@@ -9,5 +8,6 @@ import java.util.Map;
 public class Input {
     private String contentType;
     private Map<String, String> headers;
-    private JsonNode body;
+    /** Тело запроса: Map/JsonNode — то, что RestAssured сериализует в JSON. */
+    private Object body;
 }

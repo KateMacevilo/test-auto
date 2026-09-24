@@ -52,6 +52,7 @@
     },
     "expected": {
       "statusCode": 400,
+      "dbState": "ABSENT",
       "params": {
         "errors[0].errorCode": "BY.NBRB.Field.Invalid",
         "errors[0].path": "data.initiation.amount"
@@ -111,6 +112,7 @@
     },
     "expected": {
       "statusCode": 400,
+      "dbState": "ABSENT",
       "params": {
         "errors[0].errorCode": "BY.NBRB.Field.Invalid",
         "errors[0].path": "data.initiation.amount"

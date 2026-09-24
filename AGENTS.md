@@ -15,8 +15,9 @@ mvn clean test-compile
 # запуск всех тестов (suite: src/test/resources/testng.xml)
 mvn test
 
-# запуск одного класса
-mvn test -Dtest=CreatePaymentConsentTest
+# запуск одного класса / метода
+mvn test -Dtest=Tests
+mvn test -Dtest=Tests#createConsent
 
 # отчёт Allure (результаты в target/allure-results)
 ```
@@ -27,16 +28,14 @@ mvn test -Dtest=CreatePaymentConsentTest
 
 ```
 src/test/java/tests/
-├── Tests.java                                    # getHealth + универсальный прогон простых кейсов
-├── prior_ob_svc_api_listpassportsconsent/
-│   └── CreatePaymentConsentTest.java             # сценарии с состоянием (идемпотентность)
+├── Tests.java                                    # ЕДИНСТВЕННЫЙ тестовый класс: getHealth + createConsent + сценарии с состоянием
 ├── common/
 │   ├── AbstractApiTest.java                      # базовый класс: Spring wiring, общие хелперы
 │   ├── config/TestConfig.java                    # Spring-конфигурация тестов
 │   ├── request/BaseRequest.java                  # RestAssured-обёртка: auth, jwt, sendRequest
 │   ├── request/TemplateRequest.java              # GET /actuator/health, POST /api/paymentConsents/listPassports
-│   ├── model/ (TestData, Input, Expected)        # модель тест-кейса
-│   ├── dataprovider/DataProviders.java           # MainDP (файл по имени метода) и AllFilesDP (все файлы из testdata/api/)
+│   ├── model/ (TestData, Input, Expected, DbState)  # модель тест-кейса
+│   ├── dataprovider/                             # DataProviders (MainDP / FileDP / AllFilesDP), JSONReader, DateFormatter
 │   ├── assertions/Assertions.java                # verifyStatusCode / verifyResponseSchema / verifyResponseParam
 │   ├── db/DbClient.java                          # JDBC-доступ к БД сервиса (проверки + очистка)
 │   ├── utils/JwtAssertionUtil.java               # сборка x-jwt-assertion
@@ -45,23 +44,61 @@ src/test/resources/
 ├── application.properties                        # URL сервиса, БД, auth, jwt (ЗАПОЛНИТЬ)
 ├── testng.xml                                    # suite
 ├── schemas/                                      # JSON-схемы ответов (draft-04)
-└── testdata/
-    ├── getHealth.json                            # данные для getHealth (MainDP: файл по имени метода)
-    ├── create_consent_idempotent_*.json          # данные для сценариев с состоянием (MainDP)
-    └── api/                                      # простые кейсы для универсального метода Tests.createConsent (AllFilesDP)
+├── getHealth                                     # данные getHealth (FileDP: имя = имя метода, без расширения)
+├── create_consent_idempotent_body_mismatch_conflict_409   # данные сценария 409 (FileDP)
+├── create_consent_idempotent_same_body_returns_201        # данные сценария same-body (FileDP)
+└── testdata/api/                                 # простые кейсы для Tests.createConsent (AllFilesDP)
 ```
 
 ## Два режима прогона кейсов
 
 1. **Универсальный раннер** — `Tests.createConsent` + `AllFilesDP`: читает ВСЕ json-файлы из `testdata/api/`
    (каждый файл — один кейс или массив параметризаций) и прогоняет их одним методом. Логика общая:
-   POST → проверка статуса → (опционально) схема → параметры → проверка БД
-   (для 2xx созданные записи удаляются, для 4xx/5xx — проверка «записей не создано»).
+   POST → проверка статуса → (опционально) схема → параметры → проверка БД.
    Флаг `expected.verifySchema: true` включает проверку JSON-схемы.
    Подходит для большинства простых позитивных/негативных кейсов — добавление кейса = новый файл в `testdata/api/`, код не трогается.
-2. **Сценарии с состоянием** — отдельные методы в `CreatePaymentConsentTest` + `MainDP` (файл `testdata/<имя метода>.json`):
+2. **Проверка БД — data-driven, из json кейса** (поле `expected.dbState`, enum `DbState`):
+   - `CLEANUP` — запись по `x-idempotency-key` должна появиться, сверяется, затем удаляется (очистка);
+   - `ABSENT` — записей в БД быть не должно;
+   - `EXISTS` — запись должна появиться (без удаления — для кейсов, где запись нужна дальше);
+   - `SKIP` — БД не проверять.
+   Если `dbState` не задан, выводится из `statusCode`: 2xx → CLEANUP, 4xx/5xx → ABSENT.
+   Ожидаемые сохранённые значения — `expected.dbParams` (например `{"amount": "150.00"}`; поддержанные
+   ключи расширяются в `Tests.verifyDbParams`).
+3. **Сценарии с состоянием** — отдельные методы в `Tests` + `FileDP` (файл в корне ресурсов = имя метода, без расширения):
    идемпотентность (409 при несовпадении тела, 201 при совпадении) — несколько зависимых запросов
-   с проверками БД между ними, универсальной логикой не выражаются.
+   с проверками БД между ними, универсальной логикой не выражаются. Метод на сценарий, не на кейс.
+
+## DataProviders (восстановлены дословно по рабочему проекту — НЕ ИЗМЕНЯТЬ)
+
+`DataProviders` и `JSONReader` — дословные копии со скриншотов рабочего проекта (Gson, `Iterator<Object[]>`,
+возврат `null` при отсутствии ресурса, опечатка `methodeName` сохранена). Доработанный метод — только `AllFilesDP`.
+
+- `MainDP` — кейсы метода из общего файла `/testData.json` (в корне ресурсов): корневой объект,
+  ключ = имя тестового метода, значение = массив `TestData`.
+- `FileDP` — файл целиком `/testdata/<имя метода>` **без расширения** (соглашение из рабочего проекта:
+  «Файл — массив объектов TestData.class в формате JSON без расширения»), файл — обязательно массив.
+- `AllFilesDP` (доработка) — все файлы `*.json` из `testdata/api/` (массивы `TestData`), имена файлов
+  не привязаны к методам, чтение в отсортированном порядке. Список файлов ищется через classpath
+  (`PathMatchingResourcePatternResolver`, `classpath*:testdata/api/*.json`) — как и чтение в остальных
+  провайдерах, без обращения к файловой системе/CWD; само чтение — через `JSONReader.getTestDataFile`.
+  Пустой каталог или нечитаемый файл → `IllegalStateException` (не тихий skip с пустыми данными).
+- `DateFormatter` — подстановка дат `{now_<pattern>}` (напр. `{now_yyyy-MM-dd}`), вызывается внутри JSONReader.
+- Заглушки под оригинальные классы рабочего проекта (при переносе заменить на оригиналы):
+  `Matchers` (якорь для getResourceAsStream), `JSONReaderForKafka` (+ `MainDPForKafka`),
+  `SuppliedTestData`, `DataSupplier`, `JacksonTreeFactory` (+ `SuppliedFileDP`).
+- Зависимость `com.google.code.gson:gson` добавлена в pom (оригинал работает на Gson).
+
+## Раскладка тестовых данных
+
+```
+src/test/resources/
+├── getHealth                                        # FileDP: имя = имя метода, без расширения, массив TestData
+├── create_consent_idempotent_body_mismatch_conflict_409
+├── create_consent_idempotent_same_body_returns_201
+├── testData.json                                    # MainDP (создать при переходе на общий файл)
+└── testdata/api/*.json                              # AllFilesDP: простые кейсы, файлы = массивы TestData
+```
 
 ## Допущения (помечены в коде маркером `AGENTS.md:`)
 
@@ -87,9 +124,17 @@ src/test/resources/
 - `create_consent_negative_amount_boundaries` — массив: amount=0, amount=-1 → 400, `BY.NBRB.Field.Invalid`, `path=data.initiation.amount`;
 - `create_consent_negative_amount_more_than_2_decimals` — amount=100.123 → 400.
 
-Сценарии с состоянием (`CreatePaymentConsentTest`, файлы в `testdata/`):
+Сценарии с состоянием (методы в `Tests`, файлы в корне ресурсов):
 
 - `create_consent_idempotent_body_mismatch_conflict_409` — повтор с тем же ключом и другим телом → 409 Conflict, `BY.PRIORBANK.Rules.IllegalAttemptOfCreation`.
 - `create_consent_idempotent_same_body_returns_201` — повтор с тем же ключом и совпадающим телом → 201, тот же `listPassportsConsentId`, дубль в БД не создаётся.
+
+Шаг 2 обоих сценариев сверяет сохранённый в БД initiation ЦЕЛИКОМ (`DbClient.findInitiationByConsentId`,
+рекурсивная сверка JSON из колонки `initiation` с `/listPassportsConsentRequest/data/initiation` тела
+запроса) — по логике `isMatchWithExisting` сервиса, а не отдельное поле amount. Колонка читается как
+`initiation::text` (приведение на стороне БД) — прямое чтение json/jsonb через `getString` падает
+с `conversion to class java.lang.String is not supported`. Сверка (`Tests.assertJsonEquals`):
+порядок полей в объектах не важен, числа по значению (150 = 150.0), порядок в массивах важен;
+сообщение об ошибке показывает путь к расходящемуся полю.
 
 Идемпотентные кейсы в конце удаляют созданные записи из БД (`DbClient.deleteAllDataConsentById`); негативные проверяют, что записей не появилось.

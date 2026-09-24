@@ -15,7 +15,7 @@ import java.util.UUID;
  *
  * AGENTS.md: имена таблиц и колонок — допущение (snake_case от имён сущностей сервиса):
  *   idempotency_key(list_passports_payment_consent_uuid, idempotency_key),
- *   list_passports_payment_consent(uuid, amount),
+ *   list_passports_payment_consent(uuid, amount, initiation),
  *   list_passports_payment_consent_event(list_passports_payment_consent_uuid),
  *   list_passports_payment_consent_signed(list_passports_payment_consent_uuid),
  *   multi_authorisation(list_passports_payment_consent_uuid).
@@ -35,6 +35,7 @@ public class DbClient {
     private static final String COL_IDEMPOTENCY_KEY = "idempotency_key";
     private static final String COL_UUID = "uuid";
     private static final String COL_AMOUNT = "amount";
+    private static final String COL_INITIATION = "initiation";
 
     private final JdbcTemplate jdbcTemplate;
 
@@ -65,6 +66,18 @@ public class DbClient {
         return jdbcTemplate.queryForObject(
                 "SELECT " + COL_AMOUNT + " FROM " + TABLE_CONSENT + " WHERE " + COL_UUID + " = ?",
                 BigDecimal.class, consentUuid);
+    }
+
+    /** Возвращает initiation согласия как JSON-строку (колонка json) — для сверки с телом запроса целиком. */
+    public Optional<String> findInitiationByConsentId(UUID consentUuid) {
+        // ::text — приведение json/jsonb к varchar на стороне БД: драйверу отдаётся обычная строка,
+        // иначе чтение колонки json напрямую через getString падает с "conversion ... is not supported"
+        return jdbcTemplate.query(
+                        "SELECT " + COL_INITIATION + "::text FROM " + TABLE_CONSENT + " WHERE " + COL_UUID + " = ?",
+                        (rs, rowNum) -> rs.getString(COL_INITIATION),
+                        consentUuid)
+                .stream()
+                .findFirst();
     }
 
     /**

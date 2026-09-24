@@ -1,59 +1,62 @@
-{
-  "name": "Создание согласия: негатив — amount=100.123 (больше 2 знаков после точки для BYN), ответ 400 Bad Request",
-  "input": {
-    "contentType": "application/json;charset=UTF-8",
-    "headers": {
-      "x-idempotency-key": "idem-key-neg-amount-dec-001",
-      "correlationId": "corr-neg-amount-dec-001"
-    },
-    "body": {
-      "listPassportsConsentRequest": {
-        "data": {
-          "initiation": {
-            "instructionIdentification": "INST-20260914-007",
-            "endToEndIdentification": "01.20260914.PAY123462",
-            "localInstrument": "BY.NBRB.BISS.NORMAL",
-            "requestedExecutionDate": "2026-09-15",
-            "amount": 100.123,
-            "currency": "BYN",
-            "debtor": {
-              "name": "Иванов Иван Иванович",
-              "countryOfResidence": "BY"
-            },
-            "debtorAccount": {
-              "schemeName": "IBAN",
-              "identification": "BY00PRIOR3012123456789012"
-            },
-            "listPassportData": [
-              {
-                "name": "Паспорт",
-                "identification": "MP1234567",
-                "issuer": "МВД РБ",
-                "amount": 100.123
+[
+  {
+    "name": "Создание согласия: негатив — amount=100.123 (больше 2 знаков после точки для BYN), ответ 400 Bad Request",
+    "input": {
+      "contentType": "application/json;charset=UTF-8",
+      "headers": {
+        "x-idempotency-key": "idem-key-neg-amount-dec-001",
+        "correlationId": "corr-neg-amount-dec-001"
+      },
+      "body": {
+        "listPassportsConsentRequest": {
+          "data": {
+            "initiation": {
+              "instructionIdentification": "INST-20260914-007",
+              "endToEndIdentification": "01.20260914.PAY123462",
+              "localInstrument": "BY.NBRB.BISS.NORMAL",
+              "requestedExecutionDate": "2026-09-15",
+              "amount": 100.123,
+              "currency": "BYN",
+              "debtor": {
+                "name": "Иванов Иван Иванович",
+                "countryOfResidence": "BY"
+              },
+              "debtorAccount": {
+                "schemeName": "IBAN",
+                "identification": "BY00PRIOR3012123456789012"
+              },
+              "listPassportData": [
+                {
+                  "name": "Паспорт",
+                  "identification": "MP1234567",
+                  "issuer": "МВД РБ",
+                  "amount": 100.123
+                }
+              ],
+              "remittanceInformation": {
+                "categoryPurposeCode": "SUPP",
+                "proprietaryPurpose": "0SALA1.00",
+                "unstructured": "Оплата услуги"
+              },
+              "creditor": {
+                "name": "ООО «Кредитор»"
+              },
+              "creditorAccount": {
+                "schemeName": "IBAN",
+                "identification": "BY00PRIOR3012987654321098"
               }
-            ],
-            "remittanceInformation": {
-              "categoryPurposeCode": "SUPP",
-              "proprietaryPurpose": "0SALA1.00",
-              "unstructured": "Оплата услуги"
-            },
-            "creditor": {
-              "name": "ООО «Кредитор»"
-            },
-            "creditorAccount": {
-              "schemeName": "IBAN",
-              "identification": "BY00PRIOR3012987654321098"
             }
           }
         }
       }
-    }
-  },
-  "expected": {
-    "statusCode": 400,
-    "params": {
-      "errors[0].errorCode": "BY.NBRB.Field.Invalid",
-      "errors[0].path": "data.initiation.amount"
+    },
+    "expected": {
+      "statusCode": 400,
+      "dbState": "ABSENT",
+      "params": {
+        "errors[0].errorCode": "BY.NBRB.Field.Invalid",
+        "errors[0].path": "data.initiation.amount"
+      }
     }
   }
-}
+]
