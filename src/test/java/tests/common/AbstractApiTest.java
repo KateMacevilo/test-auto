@@ -15,6 +15,8 @@ import tests.common.listener.LifecycleListener;
 import tests.common.listener.ResultReporter;
 import tests.common.request.BaseRequest;
 import tests.common.request.TemplateRequest;
+import tests.common.model.TestData;
+import tests.common.wiremock.WireMockClient;
 
 /**
  * Базовый класс API-тестов: поднимает Spring-контекст, инжектит общие бины
@@ -36,6 +38,26 @@ public abstract class AbstractApiTest extends AbstractTestNGSpringContextTests {
 
     protected BaseRequest baseRequest;
     protected DbClient dbClient;
+    protected WireMockClient wireMockClient;
+
+    @Autowired
+    public void setWireMockClient(WireMockClient wireMockClient) {
+        this.wireMockClient = wireMockClient;
+    }
+
+    /**
+     * Выставляет заглушки WireMock из кейса (поле wiremock) и возвращает closeable,
+     * который сбрасывает маппинги. Использовать в try-with-resources вокруг запроса:
+     * try (AutoCloseable ignored = wireMockStubs(testData)) { ... }
+     * Если у кейса нет wiremock — no-op, ничего не выставляет и не сбрасывает.
+     */
+    protected AutoCloseable wireMockStubs(TestData testData) {
+        if (testData.getWiremock() == null || testData.getWiremock().isEmpty()) {
+            return () -> { };
+        }
+        wireMockClient.uploadStubs(testData.getWiremock());
+        return wireMockClient::resetMappings;
+    }
 
     @Autowired
     public void setBaseRequest(BaseRequest baseRequest) {

@@ -63,11 +63,34 @@ src/test/resources/
    - `EXISTS` — запись должна появиться (без удаления — для кейсов, где запись нужна дальше);
    - `SKIP` — БД не проверять.
    Если `dbState` не задан, выводится из `statusCode`: 2xx → CLEANUP, 4xx/5xx → ABSENT.
-   Ожидаемые сохранённые значения — `expected.dbParams` (например `{"amount": "150.00"}`; поддержанные
-   ключи расширяются в `Tests.verifyDbParams`).
+   Ожидаемые сохранённые значения — `expected.dbParams`: список объектов `{table, column, value}`.
+   `Tests.verifyDbParams` группирует параметры по таблицам и делает ОДИН запрос на таблицу
+   (`DbClient.findColumnValues` — все нужные колонки разом как `::text`, значения сравниваются
+   со строками из кейса). Пример:
+   `{"table": "list_passports_payment_consent", "column": "amount", "value": "150.00"}`.
+   В основной таблице поиск по `uuid`, в дочерних (event/signed/multi_authorisation) — по
+   `list_passports_payment_consent_uuid`. Таблица без строк по ключу = падение кейса.
 3. **Сценарии с состоянием** — отдельные методы в `Tests` + `FileDP` (файл в корне ресурсов = имя метода, без расширения):
    идемпотентность (409 при несовпадении тела, 201 при совпадении) — несколько зависимых запросов
    с проверками БД между ними, универсальной логикой не выражаются. Метод на сценарий, не на кейс.
+
+## WireMock (заглушки даунстримов)
+
+- В кейсе (любого типа) необязательное поле верхнего уровня `wiremock` — массив маппингов
+  в **нативном формате WireMock**. Перед запросом к сервису маппинги выставляются
+  (`WireMockClient.uploadStubs`: reset + POST /__admin/mappings), после теста сбрасываются —
+  обёртка `AbstractApiTest.wireMockStubs(testData)` в try-with-resources. Пример — файл
+  `testdata/api/create_consent_positive_apikey_multi_authorisation.json` (заглушки WSO2 IS,
+  sign-rule-service, mgt-apikey).
+- Адрес Admin API — `wiremock.url` в `application.properties`. Тесты НЕ поднимают WireMock
+  сами (нет зависимости wiremock-сервера) — предполагается отдельно развёрнутый WireMock,
+  доступный тестируемому сервису по сети.
+- **Инфраструктурное требование (вне этого проекта)**: сервис обязан ходить в WireMock вместо
+  реальных даунстримов. Рабочий (kubernetes) деплой сервиса при этом НЕ меняется — под
+  автотесты разворачивается отдельный инстанс/под сервиса (тот же образ), у которого env/профиль
+  перекрывает URL даунстримов на WireMock (отдельный namespace: под сервиса + под WireMock).
+  В CI реального проекта это роль TestRunner/PodSupport; URL этого тестового инстанса
+  и есть `prior.suite.common.autotest.url`.
 
 ## DataProviders (восстановлены дословно по рабочему проекту — НЕ ИЗМЕНЯТЬ)
 

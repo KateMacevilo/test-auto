@@ -59,9 +59,13 @@
         "data.initiation.currency": "BYN"
       },
       "dbState": "CLEANUP",
-      "dbParams": {
-        "amount": "150.00"
-      }
+      "dbParams": [
+        {
+          "table": "list_passports_payment_consent",
+          "column": "amount",
+          "value": "150.00"
+        }
+      ]
     }
   }
 ]

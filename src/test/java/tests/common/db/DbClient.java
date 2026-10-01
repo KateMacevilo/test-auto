@@ -6,16 +6,19 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.SimpleDriverDataSource;
 import org.springframework.stereotype.Component;
 
-import java.math.BigDecimal;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * Прямой доступ к БД тестируемого сервиса для проверок и очистки тестовых данных.
  *
  * AGENTS.md: имена таблиц и колонок — допущение (snake_case от имён сущностей сервиса):
  *   idempotency_key(list_passports_payment_consent_uuid, idempotency_key),
- *   list_passports_payment_consent(uuid, amount, initiation),
+ *   list_passports_payment_consent(uuid, initiation),
  *   list_passports_payment_consent_event(list_passports_payment_consent_uuid),
  *   list_passports_payment_consent_signed(list_passports_payment_consent_uuid),
  *   multi_authorisation(list_passports_payment_consent_uuid).
@@ -34,7 +37,6 @@ public class DbClient {
     private static final String COL_CONSENT_UUID = "list_passports_payment_consent_uuid";
     private static final String COL_IDEMPOTENCY_KEY = "idempotency_key";
     private static final String COL_UUID = "uuid";
-    private static final String COL_AMOUNT = "amount";
     private static final String COL_INITIATION = "initiation";
 
     private final JdbcTemplate jdbcTemplate;
@@ -61,11 +63,34 @@ public class DbClient {
                 .findFirst();
     }
 
-    /** Возвращает сумму (amount), сохранённую в согласии. */
-    public BigDecimal findConsentAmount(UUID consentUuid) {
-        return jdbcTemplate.queryForObject(
-                "SELECT " + COL_AMOUNT + " FROM " + TABLE_CONSENT + " WHERE " + COL_UUID + " = ?",
-                BigDecimal.class, consentUuid);
+    /**
+     * Возвращает значения указанных колонок таблицы по UUID согласия — одним запросом,
+     * для сверки с ожидаемыми из кейса. В основной таблице согласие ищется по uuid,
+     * в дочерних (signed/event/multi_authorisation) — по list_passports_payment_consent_uuid.
+     * Значения читаются как ::text — единообразно для numeric/json/timestamp.
+     * Таблица без строк по ключу — EmptyResultDataAccessException (падение кейса).
+     */
+    public Map<String, String> findColumnValues(String table, List<String> columns, UUID consentUuid) {
+        String keyColumn = TABLE_CONSENT.equals(table) ? COL_UUID : COL_CONSENT_UUID;
+        String selectColumns = columns.stream()
+                .map(DbClient::validateIdentifier)
+                .map(column -> column + "::text")
+                .collect(Collectors.joining(", "));
+        Map<String, Object> row = jdbcTemplate.queryForMap(
+                "SELECT " + selectColumns + " FROM " + validateIdentifier(table)
+                        + " WHERE " + keyColumn + " = ?",
+                consentUuid);
+        Map<String, String> result = new LinkedHashMap<>();
+        row.forEach((column, value) -> result.put(column, value != null ? value.toString() : null));
+        return result;
+    }
+
+    /** Имена таблиц/колонок подставляются в SQL — пропускаем только простые идентификаторы. */
+    private static String validateIdentifier(String identifier) {
+        if (identifier == null || !identifier.matches("[a-zA-Z_][a-zA-Z0-9_]*")) {
+            throw new IllegalArgumentException("Invalid SQL identifier in dbParams: " + identifier);
+        }
+        return identifier;
     }
 
     /** Возвращает initiation согласия как JSON-строку (колонка json) — для сверки с телом запроса целиком. */

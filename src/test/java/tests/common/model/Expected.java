@@ -2,6 +2,7 @@ package tests.common.model;
 
 import lombok.Data;
 
+import java.util.List;
 import java.util.Map;
 
 @Data
@@ -15,6 +16,6 @@ public class Expected {
      * 2xx → CLEANUP, 4xx/5xx → ABSENT.
      */
     private DbState dbState;
-    /** Проверки сохранённых в БД значений: ключ — поле (поддерживается "amount"), значение — ожидаемое */
-    private Map<String, String> dbParams;
+    /** Проверки сохранённых в БД значений: таблица + колонка + ожидаемое значение */
+    private List<DbParam> dbParams;
 }

@@ -13,6 +13,7 @@
 /Users/katerinazaharenko/Documents/consents/autotests/autotests/src/test/java/tests/common/listener/AllureTestCaseListener.java
 /Users/katerinazaharenko/Documents/consents/autotests/autotests/src/test/java/tests/common/listener/LifecycleListener.java
 /Users/katerinazaharenko/Documents/consents/autotests/autotests/src/test/java/tests/common/listener/ResultReporter.java
+/Users/katerinazaharenko/Documents/consents/autotests/autotests/src/test/java/tests/common/model/DbParam.java
 /Users/katerinazaharenko/Documents/consents/autotests/autotests/src/test/java/tests/common/model/DbState.java
 /Users/katerinazaharenko/Documents/consents/autotests/autotests/src/test/java/tests/common/model/Expected.java
 /Users/katerinazaharenko/Documents/consents/autotests/autotests/src/test/java/tests/common/model/Input.java
@@ -21,3 +22,4 @@
 /Users/katerinazaharenko/Documents/consents/autotests/autotests/src/test/java/tests/common/request/BaseRequest.java
 /Users/katerinazaharenko/Documents/consents/autotests/autotests/src/test/java/tests/common/request/TemplateRequest.java
 /Users/katerinazaharenko/Documents/consents/autotests/autotests/src/test/java/tests/common/utils/JwtAssertionUtil.java
+/Users/katerinazaharenko/Documents/consents/autotests/autotests/src/test/java/tests/common/wiremock/WireMockClient.java

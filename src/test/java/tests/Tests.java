@@ -14,6 +14,7 @@ import org.testng.annotations.Test;
 import tests.common.AbstractApiTest;
 import tests.common.assertions.Assertions;
 import tests.common.dataprovider.DataProviders;
+import tests.common.model.DbParam;
 import tests.common.model.DbState;
 import tests.common.model.Input;
 import tests.common.model.TestData;
@@ -26,6 +27,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import static io.qameta.allure.Allure.step;
 
@@ -60,26 +62,28 @@ public class Tests extends AbstractApiTest {
     @Link(name = "prior-ob-svc-api-listpassportsconsent [Confluence]", url = CONFLUENCE)
     @Story("Создание согласия (listPassports)")
     @Test(dataProvider = "AllFilesDP", dataProviderClass = DataProviders.class, priority = 2)
-    public void createConsent(TestData testData) {
-        Response response = templateRequest
-                .createPaymentConsent(testData.getInput(), baseRequest, url)
-                .extract().response();
-        Assertions.verifyStatusCode(response, testData.getExpected().getStatusCode());
-        if (Boolean.TRUE.equals(testData.getExpected().getVerifySchema())) {
-            verifyConsentSchema(response);
+    public void createConsent(TestData testData) throws Exception {
+        try (AutoCloseable ignored = wireMockStubs(testData)) {
+            Response response = templateRequest
+                    .createPaymentConsent(testData.getInput(), baseRequest, url)
+                    .extract().response();
+            Assertions.verifyStatusCode(response, testData.getExpected().getStatusCode());
+            if (Boolean.TRUE.equals(testData.getExpected().getVerifySchema())) {
+                verifyConsentSchema(response);
+            }
+            Assertions.verifyResponseParam(response, testData.getExpected().getParams());
+            verifyDbState(testData);
         }
-        Assertions.verifyResponseParam(response, testData.getExpected().getParams());
-        verifyDbState(testData);
     }
 
     @Link(name = "prior-ob-svc-api-listpassportsconsent [Confluence]", url = CONFLUENCE)
     @Story("Создание согласия (listPassports): идемпотентность")
     @Test(dataProvider = "FileDP", dataProviderClass = DataProviders.class, priority = 3)
-    public void create_consent_idempotent_body_mismatch_conflict_409(TestData testData) {
+    public void create_consent_idempotent_body_mismatch_conflict_409(TestData testData) throws Exception {
         String idempotencyKey = uniqueIdempotencyKey();
         UUID consentUuid = null;
 
-        try {
+        try (AutoCloseable ignored = wireMockStubs(testData)) {
             // Шаг 1: первый запрос — полные валидные заголовки и тело, согласие создаётся в БД (amount=150.00)
             step("Шаг 1: POST /api/paymentConsents/listPassports — первый запрос, создание согласия",
                     () -> postConsentAndVerifyCreated(testData, idempotencyKey));
@@ -108,11 +112,11 @@ public class Tests extends AbstractApiTest {
     @Link(name = "prior-ob-svc-api-listpassportsconsent [Confluence]", url = CONFLUENCE)
     @Story("Создание согласия (listPassports): идемпотентность")
     @Test(dataProvider = "FileDP", dataProviderClass = DataProviders.class, priority = 3)
-    public void create_consent_idempotent_same_body_returns_201(TestData testData) {
+    public void create_consent_idempotent_same_body_returns_201(TestData testData) throws Exception {
         String idempotencyKey = uniqueIdempotencyKey();
         UUID consentUuid = null;
 
-        try {
+        try (AutoCloseable ignored = wireMockStubs(testData)) {
             // Шаг 1: первый запрос создаёт согласие; повторный запрос с тем же ключом и СОВПАДАЮЩИМ телом
             Response first = step("Шаг 1: POST — первый запрос, создание согласия",
                     () -> postConsentAndVerifyCreated(testData, idempotencyKey));
@@ -141,7 +145,8 @@ public class Tests extends AbstractApiTest {
      * Проверка БД по x-idempotency-key кейса. Тип проверки — из данных кейса
      * (expected.dbState); если не задан, выводится из statusCode: 2xx → запись
      * удаляется после проверки (CLEANUP), 4xx/5xx → записей быть не должно (ABSENT).
-     * Ожидаемые сохранённые значения — в expected.dbParams (например {"amount": "150.00"}).
+     * Ожидаемые сохранённые значения — в expected.dbParams (список {table, column, value},
+     * напр. {"table": "list_passports_payment_consent", "column": "amount", "value": "150.00"}).
      */
     private void verifyDbState(TestData testData) {
         String idempotencyKey = testData.getInput().getHeaders() != null
@@ -174,18 +179,23 @@ public class Tests extends AbstractApiTest {
     }
 
     /** Сверка сохранённых в БД значений с ожидаемыми из кейса (expected.dbParams). */
-    private void verifyDbParams(UUID consentUuid, Map<String, String> dbParams) {
+    private void verifyDbParams(UUID consentUuid, List<DbParam> dbParams) {
         if (dbParams == null) {
             return;
         }
-        dbParams.forEach((field, expectedValue) -> {
-            switch (field) {
-                case "amount" -> Assert.assertEquals(
-                        dbClient.findConsentAmount(consentUuid).toPlainString(), expectedValue,
-                        "Saved amount in DB mismatch for consent " + consentUuid);
-                default -> throw new IllegalArgumentException(
-                        "Unsupported dbParam '" + field + "' — extend Tests.verifyDbParams");
-            }
+        // Одним запросом на таблицу вычитываем все запрошенные колонки, затем сверяем значения
+        Map<String, List<DbParam>> paramsByTable = dbParams.stream()
+                .collect(Collectors.groupingBy(DbParam::getTable));
+        paramsByTable.forEach((table, params) -> {
+            List<String> columns = params.stream()
+                    .map(DbParam::getColumn)
+                    .distinct()
+                    .toList();
+            Map<String, String> row = dbClient.findColumnValues(table, columns, consentUuid);
+            params.forEach(dbParam -> Assert.assertEquals(
+                    row.get(dbParam.getColumn()), dbParam.getValue(),
+                    "DB value mismatch: " + table + "." + dbParam.getColumn()
+                            + " for consent " + consentUuid));
         });
     }
 

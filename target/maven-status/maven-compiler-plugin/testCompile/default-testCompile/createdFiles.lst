@@ -12,6 +12,7 @@ tests/common/dataprovider/JSONReaderForKafka$1.class
 tests/common/dataprovider/JSONReader.class
 tests/common/dataprovider/JSONReader$2.class
 tests/common/model/Input.class
+tests/common/wiremock/WireMockClient.class
 tests/common/dataprovider/JacksonTreeFactory.class
 tests/common/request/BaseRequest.class
 tests/common/config/TestConfig.class
@@ -26,4 +27,5 @@ tests/common/utils/JwtAssertionUtil.class
 tests/common/listener/LifecycleListener.class
 tests/common/dataprovider/DataSupplier.class
 tests/common/model/SuppliedTestData.class
+tests/common/model/DbParam.class
 tests/common/dataprovider/JSONReader$1.class
