@@ -85,6 +85,11 @@ src/test/resources/
 - Адрес Admin API — `wiremock.url` в `application.properties`. Тесты НЕ поднимают WireMock
   сами (нет зависимости wiremock-сервера) — предполагается отдельно развёрнутый WireMock,
   доступный тестируемому сервису по сети.
+- **Локальный запуск / k8s**: кейсы с полем `wiremock` управляются флагом
+  `wiremock.cases.enabled` (по умолчанию true — локально ничего не нужно). В k8s-прогоне
+  выключается env `WIREMOCK_CASES_ENABLED=false` (relaxed binding Spring) или
+  `-Dwiremock.cases.enabled=false` — такие кейсы скипаются через SkipException (в Allure
+  видны как skipped), код и json не комментируются.
 - **Инфраструктурное требование (вне этого проекта)**: сервис обязан ходить в WireMock вместо
   реальных даунстримов. Рабочий (kubernetes) деплой сервиса при этом НЕ меняется — под
   автотесты разворачивается отдельный инстанс/под сервиса (тот же образ), у которого env/профиль

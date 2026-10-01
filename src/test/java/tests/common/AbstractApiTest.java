@@ -7,6 +7,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.testng.AbstractTestNGSpringContextTests;
 import org.testng.annotations.Listeners;
+import org.testng.SkipException;
 import tests.common.assertions.Assertions;
 import tests.common.config.TestConfig;
 import tests.common.db.DbClient;
@@ -36,6 +37,15 @@ public abstract class AbstractApiTest extends AbstractTestNGSpringContextTests {
     @Value("${prior.suite.common.autotest.url}")
     protected String url;
 
+    /**
+     * Кейсы с заглушками WireMock (поле wiremock) прогонять только при true.
+     * Локально — true (по умолчанию); в k8s-прогоне выключается через env
+     * WIREMOCK_CASES_ENABLED=false или -Dwiremock.cases.enabled=false —
+     * такие кейсы скипаются, а не падают.
+     */
+    @Value("${wiremock.cases.enabled:true}")
+    protected boolean wireMockCasesEnabled;
+
     protected BaseRequest baseRequest;
     protected DbClient dbClient;
     protected WireMockClient wireMockClient;
@@ -50,10 +60,14 @@ public abstract class AbstractApiTest extends AbstractTestNGSpringContextTests {
      * который сбрасывает маппинги. Использовать в try-with-resources вокруг запроса:
      * try (AutoCloseable ignored = wireMockStubs(testData)) { ... }
      * Если у кейса нет wiremock — no-op, ничего не выставляет и не сбрасывает.
+     * Если wiremock есть, а прогон выключен (wiremock.cases.enabled=false) — SkipException.
      */
     protected AutoCloseable wireMockStubs(TestData testData) {
         if (testData.getWiremock() == null || testData.getWiremock().isEmpty()) {
             return () -> { };
+        }
+        if (!wireMockCasesEnabled) {
+            throw new SkipException("WireMock-кейс пропущен: wiremock.cases.enabled=false (прогон в k8s)");
         }
         wireMockClient.uploadStubs(testData.getWiremock());
         return wireMockClient::resetMappings;
