@@ -12,7 +12,7 @@
     </parent>
 
     <groupId>tests</groupId>
-    <artifactId>prior-ob-svc-api-listpassportsconsent-autotests</artifactId>
+    <artifactId>api-listpassportsconsent-autotests</artifactId>
     <version>1.0-SNAPSHOT</version>
     <packaging>jar</packaging>
 

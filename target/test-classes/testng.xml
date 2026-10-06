@@ -1,9 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE suite SYSTEM "https://testng.org/testng-1.0.dtd">
-<suite name="prior-ob-svc-api-listpassportsconsent">
-    <test name="api-tests">
-        <classes>
-            <class name="tests.Tests"/>
-        </classes>
-    </test>
-</suite>

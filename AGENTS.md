@@ -2,7 +2,7 @@
 
 ## Обзор проекта
 
-Каталог `autotests` — набор API-автотестов для сервиса **prior-ob-svc-api-listpassportsconsent** (создание платёжных согласий listPassports, Spring Boot 3, стек: TestNG + RestAssured + Allure + Spring Test + JDBC/PostgreSQL).
+Каталог `autotests` — набор API-автотестов для сервиса **api-listpassportsconsent** (создание платёжных согласий listPassports, Spring Boot 3, стек: TestNG + RestAssured + Allure + Spring Test + JDBC/PostgreSQL).
 
 Тесты ходят в реально запущенный сервис по HTTP и для ряда сценариев проверяют/чистят реальную БД сервиса. Восстановлен по скриншотам из реального проекта (каталог `skreens/`), поэтому часть конфигурации и имён — допущения (см. раздел «Допущения» ниже).
 
@@ -76,26 +76,50 @@ src/test/resources/
 
 ## WireMock (заглушки даунстримов)
 
-- В кейсе (любого типа) необязательное поле верхнего уровня `wiremock` — массив маппингов
-  в **нативном формате WireMock**. Перед запросом к сервису маппинги выставляются
-  (`WireMockClient.uploadStubs`: reset + POST /__admin/mappings), после теста сбрасываются —
-  обёртка `AbstractApiTest.wireMockStubs(testData)` в try-with-resources. Пример — файл
-  `testdata/api/create_consent_positive_apikey_multi_authorisation.json` (заглушки WSO2 IS,
-  sign-rule-service, mgt-apikey).
+- WireMock-кейсы — отдельный пакет `testdata/wiremock/` и отдельный метод `Tests.createConsentWithWireMock`
+  (DataProvider `WireMockDP`). Основной `Tests.createConsent` (AllFilesDP) и идемпотентные сценарии
+  WireMock не знают — лишней логики в них нет. Общее тело прогона вынесено в
+  `Tests.sendAndVerifyConsent` (используется обоими методами).
+- Вызовы WireMock — `tests/common/wiremock`: реестр даунстримов `Downstream` (имя, метод, путь,
+  дефолтный статус и тело ответа), переопределение ответа `StubResponse` (статус/тело),
+  компонент `WireMockStubs` (`createStub`, `createAllStubs`, `deleteAllMappings`,
+  `verifyStubResponds`, `requestCount`, `uploadStub` для произвольного маппинга).
+  Внутри — простые вызовы RestAssured к Admin API (`/__admin/mappings`, `/__admin/requests/count`):
+  отдельный HTTP-клиент (RestTemplate/Feign) не нужен, зависимость wiremock-сервера не добавляется.
+- Выбор даунстримов и ответов — данными кейса (TestData): `downstreams` — имена enum Downstream
+  в порядке предпроверки/проверки (не задано — все); `stubResponses` — переопределения
+  {имя даунстрима: {status, body}} (body — JSON-объект или строка; не заданные поля — дефолт
+  даунстрима; неизвестное имя — падение с понятной ошибкой). Пример:
+  ```json
+  "downstreams": ["WSO2_AUTHORIZED_APPS", "SIGN_RULE_SERVICE"],
+  "stubResponses": {
+    "SIGN_RULE_SERVICE": {
+      "status": 200,
+      "body": { "queryTypes": [ { "queryType": 453, "signGroupCodes": [1], "numberRequired": 1 } ] }
+    }
+  }
+  ```
+- Поток WireMock-кейса (`Tests.createConsentWithWireMock`): пересоздание стабов даунстримов кейса
+  (чистые маппинги + ответы из данных) → предпроверка — тест сам бьёт в WireMock по заглушенным
+  путям (`verifyStubResponds`), стаб не отвечает → падение до запроса к сервису → счётчики
+  обращений из журнала до и после кейса — сервис должен дёрнуть каждый даунстрим сценария
+  (приращение счётчика, журнал общий на прогон). Пересоздание под каждый кейс — следствие
+  поддержки разных ответов одного даунстрима в разных кейсах.
+- Жизненный цикл: удаление ВСЕХ стабов после завершения тестов класса
+  (`Tests.deleteWireMockStubs`, @AfterClass alwaysRun — отработает даже при падениях).
+  В k8s-прогоне (wiremock.cases.enabled=false) стабы не выставляются и не удаляются.
+- В данных кейса НЕТ описания заглушек — вместо этого флаг `"local": true` в TestData: при
+  `wiremock.cases.enabled=false` (k8s-прогон) такой кейс скипается через SkipException
+  (в Allure виден как skipped). Локально флаг по умолчанию true — ничего настраивать не нужно;
+  в k8s выключить env `WIREMOCK_CASES_ENABLED=false` или `-Dwiremock.cases.enabled=false`.
 - Адрес Admin API — `wiremock.url` в `application.properties`. Тесты НЕ поднимают WireMock
-  сами (нет зависимости wiremock-сервера) — предполагается отдельно развёрнутый WireMock,
-  доступный тестируемому сервису по сети.
-- **Локальный запуск / k8s**: кейсы с полем `wiremock` управляются флагом
-  `wiremock.cases.enabled` (по умолчанию true — локально ничего не нужно). В k8s-прогоне
-  выключается env `WIREMOCK_CASES_ENABLED=false` (relaxed binding Spring) или
-  `-Dwiremock.cases.enabled=false` — такие кейсы скипаются через SkipException (в Allure
-  видны как skipped), код и json не комментируются.
+  сами — предполагается отдельно развёрнутый WireMock, доступный тестируемому сервису по сети.
 - **Инфраструктурное требование (вне этого проекта)**: сервис обязан ходить в WireMock вместо
   реальных даунстримов. Рабочий (kubernetes) деплой сервиса при этом НЕ меняется — под
   автотесты разворачивается отдельный инстанс/под сервиса (тот же образ), у которого env/профиль
   перекрывает URL даунстримов на WireMock (отдельный namespace: под сервиса + под WireMock).
   В CI реального проекта это роль TestRunner/PodSupport; URL этого тестового инстанса
-  и есть `prior.suite.common.autotest.url`.
+  и есть `autotest.url`.
 
 ## DataProviders (восстановлены дословно по рабочему проекту — НЕ ИЗМЕНЯТЬ)
 
@@ -154,7 +178,7 @@ src/test/resources/
 
 Сценарии с состоянием (методы в `Tests`, файлы в корне ресурсов):
 
-- `create_consent_idempotent_body_mismatch_conflict_409` — повтор с тем же ключом и другим телом → 409 Conflict, `BY.PRIORBANK.Rules.IllegalAttemptOfCreation`.
+- `create_consent_idempotent_body_mismatch_conflict_409` — повтор с тем же ключом и другим телом → 409 Conflict, `BY.Rules.IllegalAttemptOfCreation`.
 - `create_consent_idempotent_same_body_returns_201` — повтор с тем же ключом и совпадающим телом → 201, тот же `listPassportsConsentId`, дубль в БД не создаётся.
 
 Шаг 2 обоих сценариев сверяет сохранённый в БД initiation ЦЕЛИКОМ (`DbClient.findInitiationByConsentId`,

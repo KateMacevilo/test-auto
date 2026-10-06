@@ -32,7 +32,7 @@ public abstract class AbstractApiTest extends AbstractTestNGSpringContextTests {
 
     protected final TemplateRequest templateRequest = new TemplateRequest();
 
-    @Value("${prior.suite.common.autotest.url}")
+    @Value("${autotest.url}")
     protected String url;
 
     /**

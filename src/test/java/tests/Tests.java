@@ -37,7 +37,7 @@ import java.util.stream.Collectors;
 import static io.qameta.allure.Allure.step;
 
 /**
- * Единая точка входа прогона тест-кейсов сервиса prior-ob-svc-api-listpassportsconsent.
+ * Единая точка входа прогона тест-кейсов сервиса api-listpassportsconsent.
  * Каждый тест-кейс — json-файл (или массив параметризаций в одном файле), связь с методом —
  * по имени: FileDP вычитывает файл с именем метода, AllFilesDP — все файлы из testdata/api/.
  * Простые кейсы «один запрос → один ответ» сводятся к универсальному createConsent;
@@ -47,14 +47,14 @@ import static io.qameta.allure.Allure.step;
 @Feature("Создание согласия на инициирование платежа")
 public class Tests extends AbstractApiTest {
 
-    private static final String CONFLUENCE = "https://confluence.priorbank.by:8443/display/API/prior-ob-svc-api-listpassportsconsent";
+    private static final String CONFLUENCE = "https://confluence.example/display/API/api-listpassportsconsent";
 
-    private static final String EXPECTED_ERROR_CODE = "BY.PRIORBANK.Rules.IllegalAttemptOfCreation";
+    private static final String EXPECTED_ERROR_CODE = "BY.Rules.IllegalAttemptOfCreation";
     private static final int EXPECTED_CONFLICT_STATUS = 409;
     private static final BigDecimal AMOUNT_MISMATCH = new BigDecimal("999.99");
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    @Link(name = "prior-ob-svc-api-listpassportsconsent [Confluence]", url = CONFLUENCE)
+    @Link(name = "api-listpassportsconsent [Confluence]", url = CONFLUENCE)
     @Story("Health check")
     @Test(dataProvider = "FileDP", dataProviderClass = DataProviders.class, priority = 1)
     public void getHealth(TestData testData) {
@@ -64,7 +64,7 @@ public class Tests extends AbstractApiTest {
         Assertions.verifyResponseParam(response, testData.getExpected().getParams());
     }
 
-    @Link(name = "prior-ob-svc-api-listpassportsconsent [Confluence]", url = CONFLUENCE)
+    @Link(name = "api-listpassportsconsent [Confluence]", url = CONFLUENCE)
     @Story("Создание согласия (listPassports)")
     @Test(dataProvider = "AllFilesDP", dataProviderClass = DataProviders.class, priority = 2)
     public void createConsent(TestData testData) {
@@ -82,7 +82,7 @@ public class Tests extends AbstractApiTest {
      * Поток кейса: стабы → предпроверка (в порядке списка) → счётчики обращений →
      * запрос к сервису → проверка, что сервис реально дёрнул каждый даунстрим сценария.
      */
-    @Link(name = "prior-ob-svc-api-listpassportsconsent [Confluence]", url = CONFLUENCE)
+    @Link(name = "api-listpassportsconsent [Confluence]", url = CONFLUENCE)
     @Story("Создание согласия (listPassports): WireMock")
     @Test(dataProvider = "WireMockDP", dataProviderClass = DataProviders.class, priority = 4)
     public void createConsentWithWireMock(TestData testData) {
@@ -166,7 +166,7 @@ public class Tests extends AbstractApiTest {
         verifyDbState(testData);
     }
 
-    @Link(name = "prior-ob-svc-api-listpassportsconsent [Confluence]", url = CONFLUENCE)
+    @Link(name = "api-listpassportsconsent [Confluence]", url = CONFLUENCE)
     @Story("Создание согласия (listPassports): идемпотентность")
     @Test(dataProvider = "FileDP", dataProviderClass = DataProviders.class, priority = 3)
     public void create_consent_idempotent_body_mismatch_conflict_409(TestData testData) {
@@ -199,7 +199,7 @@ public class Tests extends AbstractApiTest {
         }
     }
 
-    @Link(name = "prior-ob-svc-api-listpassportsconsent [Confluence]", url = CONFLUENCE)
+    @Link(name = "api-listpassportsconsent [Confluence]", url = CONFLUENCE)
     @Story("Создание согласия (listPassports): идемпотентность")
     @Test(dataProvider = "FileDP", dataProviderClass = DataProviders.class, priority = 3)
     public void create_consent_idempotent_same_body_returns_201(TestData testData) {
