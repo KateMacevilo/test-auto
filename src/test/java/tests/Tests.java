@@ -10,6 +10,8 @@ import io.qameta.allure.Story;
 import io.restassured.response.Response;
 import lombok.extern.slf4j.Slf4j;
 import org.testng.Assert;
+import org.testng.SkipException;
+import org.testng.annotations.AfterClass;
 import org.testng.annotations.Test;
 import tests.common.AbstractApiTest;
 import tests.common.assertions.Assertions;
@@ -18,12 +20,15 @@ import tests.common.model.DbParam;
 import tests.common.model.DbState;
 import tests.common.model.Input;
 import tests.common.model.TestData;
+import tests.common.wiremock.Downstream;
+import tests.common.wiremock.StubResponse;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -62,28 +67,113 @@ public class Tests extends AbstractApiTest {
     @Link(name = "prior-ob-svc-api-listpassportsconsent [Confluence]", url = CONFLUENCE)
     @Story("Создание согласия (listPassports)")
     @Test(dataProvider = "AllFilesDP", dataProviderClass = DataProviders.class, priority = 2)
-    public void createConsent(TestData testData) throws Exception {
-        try (AutoCloseable ignored = wireMockStubs(testData)) {
-            Response response = templateRequest
-                    .createPaymentConsent(testData.getInput(), baseRequest, url)
-                    .extract().response();
-            Assertions.verifyStatusCode(response, testData.getExpected().getStatusCode());
-            if (Boolean.TRUE.equals(testData.getExpected().getVerifySchema())) {
-                verifyConsentSchema(response);
-            }
-            Assertions.verifyResponseParam(response, testData.getExpected().getParams());
-            verifyDbState(testData);
+    public void createConsent(TestData testData) {
+        sendAndVerifyConsent(testData);
+    }
+
+    /**
+     * WireMock-кейсы: те же проверки, что у createConsent, но даунстримы сервиса заглушены.
+     * Какие даунстримы проверять и в каком порядке — список downstreams в данных кейса
+     * (не задан — все); ответы заглушек — дефолты enum Downstream, для кейса можно
+     * переопределить через stubResponses (статус/тело на даунстрим).
+     * Перед кейсом стабы его даунстримов пересоздаются (чистые маппинги + ответы кейса),
+     * после завершения ВСЕХ тестов — удаляются (см. deleteWireMockStubs).
+     * Прогон только локально: при wiremock.cases.enabled=false кейс скипается.
+     * Поток кейса: стабы → предпроверка (в порядке списка) → счётчики обращений →
+     * запрос к сервису → проверка, что сервис реально дёрнул каждый даунстрим сценария.
+     */
+    @Link(name = "prior-ob-svc-api-listpassportsconsent [Confluence]", url = CONFLUENCE)
+    @Story("Создание согласия (listPassports): WireMock")
+    @Test(dataProvider = "WireMockDP", dataProviderClass = DataProviders.class, priority = 4)
+    public void createConsentWithWireMock(TestData testData) {
+        if (testData.isLocal() && !wireMockCasesEnabled) {
+            throw new SkipException("Локальный WireMock-кейс пропущен: wiremock.cases.enabled=false (прогон в k8s)");
         }
+        List<Downstream> downstreams = downstreamsOf(testData);
+        validateStubResponseKeys(testData);
+        // Шаг 1: чистые стабы под этот кейс — дефолтные ответы + переопределения из данных
+        wireMockStubs.deleteAllMappings();
+        downstreams.forEach(d -> wireMockStubs.createStub(d, stubResponseOf(testData, d)));
+        // Шаг 2: стабы отвечают как ожидает кейс (иначе смысла гонять его нет) — в порядке списка
+        downstreams.forEach(d -> wireMockStubs.verifyStubResponds(d, stubResponseOf(testData, d)));
+        // Шаг 3: сколько раз даунстримы уже дёргались (журнал общий на прогон)
+        Map<String, Long> countsBefore = downstreamRequestCounts(downstreams);
+        // Шаг 4: сам кейс
+        sendAndVerifyConsent(testData);
+        // Шаг 5: сервис обратился к каждому даунстриму сценария (по приращению счётчика)
+        Map<String, Long> countsAfter = downstreamRequestCounts(downstreams);
+        countsAfter.forEach((downstream, count) -> Assert.assertTrue(count > countsBefore.get(downstream),
+                "Сервис не обратился к даунстриму " + downstream));
+    }
+
+    /** Даунстримы кейса: из данных (с порядком) либо все известные, если не заданы. */
+    private List<Downstream> downstreamsOf(TestData testData) {
+        if (testData.getDownstreams() == null || testData.getDownstreams().isEmpty()) {
+            return List.of(Downstream.values());
+        }
+        return testData.getDownstreams();
+    }
+
+    /** Переопределение ответа заглушки для даунстрима из данных кейса (null — дефолт). */
+    private StubResponse stubResponseOf(TestData testData, Downstream downstream) {
+        return testData.getStubResponses() != null
+                ? testData.getStubResponses().get(downstream.name()) : null;
+    }
+
+    /** Опечатка в имени даунстрима в stubResponses — падение с понятной ошибкой, а не тихий пропуск. */
+    private void validateStubResponseKeys(TestData testData) {
+        if (testData.getStubResponses() == null) {
+            return;
+        }
+        testData.getStubResponses().keySet().forEach(key -> {
+            try {
+                Downstream.valueOf(key);
+            } catch (IllegalArgumentException e) {
+                throw new IllegalArgumentException(
+                        "Unknown downstream '" + key + "' in stubResponses of case '" + testData.getName()
+                                + "' — expected one of " + java.util.Arrays.toString(Downstream.values()));
+            }
+        });
+    }
+
+    private Map<String, Long> downstreamRequestCounts(List<Downstream> downstreams) {
+        Map<String, Long> counts = new LinkedHashMap<>();
+        for (Downstream downstream : downstreams) {
+            counts.put(downstream.name(), wireMockStubs.requestCount(downstream));
+        }
+        return counts;
+    }
+
+    /** Удаляет все стабы WireMock после завершения тестов класса (выполняется всегда). */
+    @AfterClass(alwaysRun = true)
+    public void deleteWireMockStubs() {
+        if (!wireMockCasesEnabled) {
+            return;
+        }
+        wireMockStubs.deleteAllMappings();
+    }
+
+    /** Общее тело прогона кейса создания согласия: POST → статус → (схема) → параметры → БД. */
+    private void sendAndVerifyConsent(TestData testData) {
+        Response response = templateRequest
+                .createPaymentConsent(testData.getInput(), baseRequest, url)
+                .extract().response();
+        Assertions.verifyStatusCode(response, testData.getExpected().getStatusCode());
+        if (Boolean.TRUE.equals(testData.getExpected().getVerifySchema())) {
+            verifyConsentSchema(response);
+        }
+        Assertions.verifyResponseParam(response, testData.getExpected().getParams());
+        verifyDbState(testData);
     }
 
     @Link(name = "prior-ob-svc-api-listpassportsconsent [Confluence]", url = CONFLUENCE)
     @Story("Создание согласия (listPassports): идемпотентность")
     @Test(dataProvider = "FileDP", dataProviderClass = DataProviders.class, priority = 3)
-    public void create_consent_idempotent_body_mismatch_conflict_409(TestData testData) throws Exception {
+    public void create_consent_idempotent_body_mismatch_conflict_409(TestData testData) {
         String idempotencyKey = uniqueIdempotencyKey();
         UUID consentUuid = null;
 
-        try (AutoCloseable ignored = wireMockStubs(testData)) {
+        try {
             // Шаг 1: первый запрос — полные валидные заголовки и тело, согласие создаётся в БД (amount=150.00)
             step("Шаг 1: POST /api/paymentConsents/listPassports — первый запрос, создание согласия",
                     () -> postConsentAndVerifyCreated(testData, idempotencyKey));
@@ -112,11 +202,11 @@ public class Tests extends AbstractApiTest {
     @Link(name = "prior-ob-svc-api-listpassportsconsent [Confluence]", url = CONFLUENCE)
     @Story("Создание согласия (listPassports): идемпотентность")
     @Test(dataProvider = "FileDP", dataProviderClass = DataProviders.class, priority = 3)
-    public void create_consent_idempotent_same_body_returns_201(TestData testData) throws Exception {
+    public void create_consent_idempotent_same_body_returns_201(TestData testData) {
         String idempotencyKey = uniqueIdempotencyKey();
         UUID consentUuid = null;
 
-        try (AutoCloseable ignored = wireMockStubs(testData)) {
+        try {
             // Шаг 1: первый запрос создаёт согласие; повторный запрос с тем же ключом и СОВПАДАЮЩИМ телом
             Response first = step("Шаг 1: POST — первый запрос, создание согласия",
                     () -> postConsentAndVerifyCreated(testData, idempotencyKey));

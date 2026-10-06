@@ -49,6 +49,7 @@ public class DataProviders {
     // ===== Доработка: прогон всех кейсов каталога одним универсальным методом =====
 
     private static final String API_CASES_DIR = "testdata/api/";
+    private static final String WIREMOCK_CASES_DIR = "testdata/wiremock/";
 
     /** Резолвим файлы через classpath — как и остальные провайдеры (getResourceAsStream), а не через файловую систему. */
     private static final ResourcePatternResolver RESOURCE_RESOLVER =
@@ -62,15 +63,28 @@ public class DataProviders {
      */
     @DataProvider(name = "AllFilesDP")
     public static Iterator<Object[]> allFilesDP() throws IOException {
-        List<String> fileNames = listJsonFiles(API_CASES_DIR);
+        return allCasesFrom(API_CASES_DIR);
+    }
+
+    /**
+     * Доработка: кейсы с заглушками WireMock из testdata/wiremock/ — отдельный пакет
+     * для метода Tests.createConsentWithWireMock. Формат файлов тот же, что у AllFilesDP.
+     */
+    @DataProvider(name = "WireMockDP")
+    public static Iterator<Object[]> wireMockDP() throws IOException {
+        return allCasesFrom(WIREMOCK_CASES_DIR);
+    }
+
+    private static Iterator<Object[]> allCasesFrom(String dir) throws IOException {
+        List<String> fileNames = listJsonFiles(dir);
         if (fileNames.isEmpty()) {
-            throw new IllegalStateException("No test case files (*.json) found in classpath:/" + API_CASES_DIR);
+            throw new IllegalStateException("No test case files (*.json) found in classpath:/" + dir);
         }
         List<Object[]> allCases = new ArrayList<>();
         for (String fileName : fileNames) {
-            Iterator<Object[]> rows = JSONReader.getTestDataFile(API_CASES_DIR + fileName);
+            Iterator<Object[]> rows = JSONReader.getTestDataFile(dir + fileName);
             if (rows == null) {
-                throw new IllegalStateException("Failed to read test data file: /" + API_CASES_DIR + fileName);
+                throw new IllegalStateException("Failed to read test data file: /" + dir + fileName);
             }
             rows.forEachRemaining(allCases::add);
         }
