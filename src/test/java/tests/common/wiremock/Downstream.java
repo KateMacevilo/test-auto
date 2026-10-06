@@ -2,6 +2,8 @@ package tests.common.wiremock;
 
 import lombok.Data;
 
+import java.util.Map;
+
 /**
  * Даунстрим сервиса, заглушаемый через WireMock. Полностью описывается в json кейса
  * (элемент списка downstreams в TestData): имя, HTTP-метод и путь заглушки, статус и тело
@@ -24,4 +26,11 @@ public class Downstream {
     private int status;
     /** Тело ответа: JSON-объект или строка */
     private Object body;
+    /**
+     * Query-параметры для сопоставления запроса (маппинг матчится только при совпадении,
+     * предпроверка и счётчик обращений шлют их же). Опционально.
+     */
+    private Map<String, String> queryParams;
+    /** Header'ы для сопоставления запроса — аналогично queryParams. Опционально. */
+    private Map<String, String> headers;
 }

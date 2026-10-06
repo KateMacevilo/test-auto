@@ -34,18 +34,47 @@ public class WireMockStubs {
     /** Создаёт стаб для даунстрима (через Admin API) с ответом из описания даунстрима. */
     public void createStub(Downstream downstream) {
         validate(downstream);
-        uploadStub(downstream.getMethod(), downstream.getUrlPath(),
-                downstream.getStatus(), downstream.getBody());
+        Map<String, Object> mapping = new LinkedHashMap<>();
+        Map<String, Object> request = new LinkedHashMap<>();
+        request.put("method", downstream.getMethod());
+        request.put("urlPath", downstream.getUrlPath());
+        // сопоставление по query-параметрам и header'ам — только точное совпадение (equalTo)
+        if (downstream.getQueryParams() != null) {
+            request.put("queryParameters", equalToMatchers(downstream.getQueryParams()));
+        }
+        if (downstream.getHeaders() != null) {
+            request.put("headers", equalToMatchers(downstream.getHeaders()));
+        }
+        mapping.put("request", request);
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("status", downstream.getStatus());
+        response.put("headers", Map.of("Content-Type", "application/json"));
+        // строка — сырое тело, JSON-объект — через jsonBody (WireMock сериализует сам)
+        if (downstream.getBody() instanceof String) {
+            response.put("body", downstream.getBody());
+        } else {
+            response.put("jsonBody", downstream.getBody());
+        }
+        mapping.put("response", response);
+        uploadStub(mapping);
     }
 
     /**
      * Предпроверка перед кейсом: стаб даунстрима отвечает ожидаемым статусом.
-     * Тест сам бьёт в WireMock по заглушенному пути — если маппинг не выставился
-     * или отвечает иначе, кейс падает до обращения к сервису.
+     * Тест сам бьёт в WireMock по заглушенному пути с query-параметрами и header'ами
+     * даунстрима — если маппинг не выставился или отвечает иначе, кейс падает
+     * до обращения к сервису.
      */
     public void verifyStubResponds(Downstream downstream) {
         validate(downstream);
-        given().request(downstream.getMethod(), wireMockUrl + downstream.getUrlPath())
+        var request = given();
+        if (downstream.getQueryParams() != null) {
+            request = request.queryParams(downstream.getQueryParams());
+        }
+        if (downstream.getHeaders() != null) {
+            request = request.headers(downstream.getHeaders());
+        }
+        request.request(downstream.getMethod(), wireMockUrl + downstream.getUrlPath())
                 .then().statusCode(downstream.getStatus());
         log.info("WireMock stub responds: {} {} -> {}",
                 downstream.getMethod(), downstream.getUrlPath(), downstream.getStatus());
@@ -53,8 +82,17 @@ public class WireMockStubs {
 
     /** Число обращений к даунстриму в журнале WireMock (до/после кейса — по приращению). */
     public long requestCount(Downstream downstream) {
+        Map<String, Object> criteria = new LinkedHashMap<>();
+        criteria.put("method", downstream.getMethod());
+        criteria.put("urlPath", downstream.getUrlPath());
+        if (downstream.getQueryParams() != null) {
+            criteria.put("queryParameters", equalToMatchers(downstream.getQueryParams()));
+        }
+        if (downstream.getHeaders() != null) {
+            criteria.put("headers", equalToMatchers(downstream.getHeaders()));
+        }
         return given().contentType(ContentType.JSON)
-                .body(Map.of("method", downstream.getMethod(), "urlPath", downstream.getUrlPath()))
+                .body(criteria)
                 .post(wireMockUrl + "/__admin/requests/count")
                 .then().statusCode(200)
                 .extract().jsonPath().getLong("count");
@@ -82,19 +120,10 @@ public class WireMockStubs {
         }
     }
 
-    private void uploadStub(String method, String urlPath, int status, Object body) {
-        Map<String, Object> mapping = new LinkedHashMap<>();
-        mapping.put("request", Map.of("method", method, "urlPath", urlPath));
-        Map<String, Object> response = new LinkedHashMap<>();
-        response.put("status", status);
-        response.put("headers", Map.of("Content-Type", "application/json"));
-        // строка — сырое тело, JSON-объект — через jsonBody (WireMock сериализует сам)
-        if (body instanceof String) {
-            response.put("body", body);
-        } else {
-            response.put("jsonBody", body);
-        }
-        mapping.put("response", response);
-        uploadStub(mapping);
+    /** Матчеры WireMock вида {ключ: {equalTo: значение}} для query-параметров/header'ов. */
+    private Map<String, Object> equalToMatchers(Map<String, String> criteria) {
+        Map<String, Object> matchers = new LinkedHashMap<>();
+        criteria.forEach((key, value) -> matchers.put(key, Map.of("equalTo", value)));
+        return matchers;
     }
 }
