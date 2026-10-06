@@ -1,31 +1,27 @@
 package tests.common.wiremock;
 
-import lombok.Getter;
+import lombok.Data;
 
 /**
- * Даунстримы сервиса, заглушаемые через WireMock: для каждого — метод и путь заглушки,
- * ожидаемый статус и тело ответа. Имена enum-а используются в json кейсов (поле downstreams)
- * для выбора даунстримов сценария и задания их порядка; маппинг имени в заглушку — здесь,
- * в коде (переиспользуется между кейсами).
+ * Даунстрим сервиса, заглушаемый через WireMock. Полностью описывается в json кейса
+ * (элемент списка downstreams в TestData): имя, HTTP-метод и путь заглушки, статус и тело
+ * ответа. Реестра в коде нет — у разных сервисов свои методы/пути, поэтому каждый кейс
+ * объявляет только те даунстримы и те ответы, которые ему нужны (с произвольным порядком).
+ * body: JSON-объект (передаётся через jsonBody) или строка (сырое тело).
+ *
+ * AGENTS.md: имена даунстримов — соглашение только внутри кейса (ключи нигде не резолвятся),
+ * метод/путь/ответ — контракт конкретного даунстрима, при изменении правится json кейса.
  */
-@Getter
-public enum Downstream {
-    WSO2_AUTHORIZED_APPS("GET", "/25100/authorized-apps", 200,
-            "{ \"total\": 1, \"list\": [] }"),
-    SIGN_RULE_SERVICE("GET", "/25100", 200,
-            "{ \"queryTypes\": [ { \"queryType\": 453, \"signGroupCodes\": [1, 2],"
-                    + " \"numberRequired\": 2, \"numberMax\": 2 } ] }"),
-    MGT_APIKEY_BINDINGS("POST", "/bindings", 200, "{ }");
-
-    private final String method;
-    private final String urlPath;
-    private final int status;
-    private final String body;
-
-    Downstream(String method, String urlPath, int status, String body) {
-        this.method = method;
-        this.urlPath = urlPath;
-        this.status = status;
-        this.body = body;
-    }
+@Data
+public class Downstream {
+    /** Имя даунстрима — для сообщений об ошибках и логов (в коде не резолвится) */
+    private String name;
+    /** HTTP-метод заглушки, напр. GET или POST */
+    private String method;
+    /** Путь заглушки, напр. /25100/authorized-apps */
+    private String urlPath;
+    /** HTTP-статус ответа заглушки */
+    private int status;
+    /** Тело ответа: JSON-объект или строка */
+    private Object body;
 }

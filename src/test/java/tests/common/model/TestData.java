@@ -2,10 +2,8 @@ package tests.common.model;
 
 import lombok.Data;
 import tests.common.wiremock.Downstream;
-import tests.common.wiremock.StubResponse;
 
 import java.util.List;
-import java.util.Map;
 
 @Data
 public class TestData {
@@ -21,13 +19,10 @@ public class TestData {
      */
     private boolean local;
     /**
-     * Даунстримы сценария для WireMock-кейсов: имена enum {@link Downstream} в порядке
-     * предпроверки/проверки. Не задано — предполагаются все даунстримы реестра.
+     * Даунстримы сценария для WireMock-кейсов: полные описания ({@link Downstream} — имя,
+     * метод, путь, статус и тело ответа) в порядке предпроверки/проверки. Каждый кейс
+     * объявляет только свои даунстримы — реестра в коде нет. Не задано — без заглушек,
+     * предпроверка и проверка обращений к даунстримам пропускаются.
      */
     private List<Downstream> downstreams;
-    /**
-     * Переопределения ответов заглушек: ключ — имя enum {@link Downstream}, значение —
-     * статус/тело ответа для этого кейса. Не задано — используются дефолты даунстримов.
-     */
-    private Map<String, StubResponse> stubResponses;
 }

@@ -21,7 +21,6 @@ import tests.common.model.DbState;
 import tests.common.model.Input;
 import tests.common.model.TestData;
 import tests.common.wiremock.Downstream;
-import tests.common.wiremock.StubResponse;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -73,14 +72,15 @@ public class Tests extends AbstractApiTest {
 
     /**
      * WireMock-кейсы: те же проверки, что у createConsent, но даунстримы сервиса заглушены.
-     * Какие даунстримы проверять и в каком порядке — список downstreams в данных кейса
-     * (не задан — все); ответы заглушек — дефолты enum Downstream, для кейса можно
-     * переопределить через stubResponses (статус/тело на даунстрим).
-     * Перед кейсом стабы его даунстримов пересоздаются (чистые маппинги + ответы кейса),
-     * после завершения ВСЕХ тестов — удаляются (см. deleteWireMockStubs).
+     * Даунстримы и их ответы (метод, путь, статус, тело) полностью описаны в данных кейса —
+     * списком downstreams, его порядок задаёт порядок предпроверки/проверки. Реестра
+     * даунстримов в коде нет: каждый кейс объявляет только свои заглушки.
+     * Перед кейсом стабы его даунстримов пересоздаются (чистые маппинги), после завершения
+     * ВСЕХ тестов — удаляются (см. deleteWireMockStubs).
      * Прогон только локально: при wiremock.cases.enabled=false кейс скипается.
      * Поток кейса: стабы → предпроверка (в порядке списка) → счётчики обращений →
      * запрос к сервису → проверка, что сервис реально дёрнул каждый даунстрим сценария.
+     * Нет downstreams в данных — без заглушек, предпроверка и проверка обращений пропускаются.
      */
     @Link(name = "api-listpassportsconsent [Confluence]", url = CONFLUENCE)
     @Story("Создание согласия (listPassports): WireMock")
@@ -89,13 +89,13 @@ public class Tests extends AbstractApiTest {
         if (testData.isLocal() && !wireMockCasesEnabled) {
             throw new SkipException("Локальный WireMock-кейс пропущен: wiremock.cases.enabled=false (прогон в k8s)");
         }
-        List<Downstream> downstreams = downstreamsOf(testData);
-        validateStubResponseKeys(testData);
-        // Шаг 1: чистые стабы под этот кейс — дефолтные ответы + переопределения из данных
+        List<Downstream> downstreams = testData.getDownstreams() != null
+                ? testData.getDownstreams() : List.of();
+        // Шаг 1: чистые стабы под этот кейс — ответы из данных
         wireMockStubs.deleteAllMappings();
-        downstreams.forEach(d -> wireMockStubs.createStub(d, stubResponseOf(testData, d)));
+        downstreams.forEach(wireMockStubs::createStub);
         // Шаг 2: стабы отвечают как ожидает кейс (иначе смысла гонять его нет) — в порядке списка
-        downstreams.forEach(d -> wireMockStubs.verifyStubResponds(d, stubResponseOf(testData, d)));
+        downstreams.forEach(wireMockStubs::verifyStubResponds);
         // Шаг 3: сколько раз даунстримы уже дёргались (журнал общий на прогон)
         Map<String, Long> countsBefore = downstreamRequestCounts(downstreams);
         // Шаг 4: сам кейс
@@ -106,40 +106,10 @@ public class Tests extends AbstractApiTest {
                 "Сервис не обратился к даунстриму " + downstream));
     }
 
-    /** Даунстримы кейса: из данных (с порядком) либо все известные, если не заданы. */
-    private List<Downstream> downstreamsOf(TestData testData) {
-        if (testData.getDownstreams() == null || testData.getDownstreams().isEmpty()) {
-            return List.of(Downstream.values());
-        }
-        return testData.getDownstreams();
-    }
-
-    /** Переопределение ответа заглушки для даунстрима из данных кейса (null — дефолт). */
-    private StubResponse stubResponseOf(TestData testData, Downstream downstream) {
-        return testData.getStubResponses() != null
-                ? testData.getStubResponses().get(downstream.name()) : null;
-    }
-
-    /** Опечатка в имени даунстрима в stubResponses — падение с понятной ошибкой, а не тихий пропуск. */
-    private void validateStubResponseKeys(TestData testData) {
-        if (testData.getStubResponses() == null) {
-            return;
-        }
-        testData.getStubResponses().keySet().forEach(key -> {
-            try {
-                Downstream.valueOf(key);
-            } catch (IllegalArgumentException e) {
-                throw new IllegalArgumentException(
-                        "Unknown downstream '" + key + "' in stubResponses of case '" + testData.getName()
-                                + "' — expected one of " + java.util.Arrays.toString(Downstream.values()));
-            }
-        });
-    }
-
     private Map<String, Long> downstreamRequestCounts(List<Downstream> downstreams) {
         Map<String, Long> counts = new LinkedHashMap<>();
         for (Downstream downstream : downstreams) {
-            counts.put(downstream.name(), wireMockStubs.requestCount(downstream));
+            counts.put(downstream.getName(), wireMockStubs.requestCount(downstream));
         }
         return counts;
     }

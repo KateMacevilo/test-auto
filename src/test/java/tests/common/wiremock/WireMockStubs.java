@@ -11,10 +11,11 @@ import java.util.Map;
 import static io.restassured.RestAssured.given;
 
 /**
- * Переиспользуемые заглушки WireMock для даунстримов сервиса (реестр — enum {@link Downstream}).
- * Каждый публичный метод работает с даунстримом из реестра; стабы создаются через Admin API
- * WireMock, это обычный HTTP/JSON API — внутри простые вызовы RestAssured, отдельный
- * HTTP-клиент (RestTemplate/Feign) или зависимость wiremock-сервера не нужны.
+ * Переиспользуемые заглушки WireMock для даунстримов сервиса. Даунстрим ({@link Downstream})
+ * полностью описан в json кейса — метод, путь, статус и тело ответа, — классу остаётся
+ * только создать стаб через Admin API WireMock (обычный HTTP/JSON API, внутри простые
+ * вызовы RestAssured; отдельный HTTP-клиент (RestTemplate/Feign) или зависимость
+ * wiremock-сервера не нужны).
  * Методы предназначены для вызова из тестов напрямую — так вызовы переиспользуются между кейсами.
  *
  * AGENTS.md: WireMock не поднимается тестами — адрес Admin API задаётся wiremock.url,
@@ -30,40 +31,24 @@ public class WireMockStubs {
         this.wireMockUrl = wireMockUrl;
     }
 
-    /** Создаёт стаб для даунстрима (через Admin API). */
+    /** Создаёт стаб для даунстрима (через Admin API) с ответом из описания даунстрима. */
     public void createStub(Downstream downstream) {
-        createStub(downstream, null);
+        validate(downstream);
+        uploadStub(downstream.getMethod(), downstream.getUrlPath(),
+                downstream.getStatus(), downstream.getBody());
     }
 
     /**
-     * Создаёт стаб для даунстрима с переопределением ответа из кейса (null — дефолт даунстрима).
-     * Не заданные в override поля берутся из enum Downstream.
-     */
-    public void createStub(Downstream downstream, StubResponse override) {
-        int status = override != null && override.getStatus() != 0
-                ? override.getStatus() : downstream.getStatus();
-        Object body = override != null && override.getBody() != null
-                ? override.getBody() : downstream.getBody();
-        uploadStub(downstream.getMethod(), downstream.getUrlPath(), status, body);
-    }
-
-    /** Создаёт стабы всех известных даунстримов (полный набор перед прогоном). */
-    public void createAllStubs() {
-        for (Downstream downstream : Downstream.values()) {
-            createStub(downstream);
-        }
-    }
-
-    /**
-     * Предпроверка перед кейсом: стаб даунстрима отвечает ожидаемым статусом
-     * (с учётом переопределения из кейса, null — дефолт даунстрима).
+     * Предпроверка перед кейсом: стаб даунстрима отвечает ожидаемым статусом.
      * Тест сам бьёт в WireMock по заглушенному пути — если маппинг не выставился
      * или отвечает иначе, кейс падает до обращения к сервису.
      */
-    public void verifyStubResponds(Downstream downstream, StubResponse override) {
-        int status = override != null && override.getStatus() != 0
-                ? override.getStatus() : downstream.getStatus();
-        verifyStubResponds(downstream.getMethod(), downstream.getUrlPath(), status);
+    public void verifyStubResponds(Downstream downstream) {
+        validate(downstream);
+        given().request(downstream.getMethod(), wireMockUrl + downstream.getUrlPath())
+                .then().statusCode(downstream.getStatus());
+        log.info("WireMock stub responds: {} {} -> {}",
+                downstream.getMethod(), downstream.getUrlPath(), downstream.getStatus());
     }
 
     /** Число обращений к даунстриму в журнале WireMock (до/после кейса — по приращению). */
@@ -90,10 +75,11 @@ public class WireMockStubs {
         log.info("WireMock stub created: {}", mapping);
     }
 
-    private void verifyStubResponds(String method, String urlPath, int expectedStatus) {
-        given().request(method, wireMockUrl + urlPath)
-                .then().statusCode(expectedStatus);
-        log.info("WireMock stub responds: {} {} -> {}", method, urlPath, expectedStatus);
+    private void validate(Downstream downstream) {
+        if (downstream.getMethod() == null || downstream.getUrlPath() == null) {
+            throw new IllegalArgumentException(
+                    "Downstream '" + downstream.getName() + "' must define method and urlPath");
+        }
     }
 
     private void uploadStub(String method, String urlPath, int status, Object body) {
