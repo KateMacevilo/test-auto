@@ -64,25 +64,25 @@ public class DbClient {
     }
 
     /**
-     * Возвращает значения указанных колонок таблицы по UUID согласия — одним запросом,
-     * для сверки с ожидаемыми из кейса. В основной таблице согласие ищется по uuid,
-     * в дочерних (signed/event/multi_authorisation) — по list_passports_payment_consent_uuid.
-     * Значения читаются как ::text — единообразно для numeric/json/timestamp.
-     * Таблица без строк по ключу — EmptyResultDataAccessException (падение кейса).
+     * Возвращает все строки таблицы по UUID согласия — одним запросом на таблицу,
+     * для сверки с ожидаемыми строками из кейса. В основной таблице согласие ищется
+     * по uuid, в дочерних (signed/event/multi_authorisation) — по list_passports_payment_consent_uuid.
+     * Значения приводятся к строке через toString — единообразно для numeric/timestamp,
+     * json/jsonb приходят PGobject'ом, toString даёт JSON-текст.
+     * Таблица без строк по ключу — пустой список (падение с проверкой в тесте, не исключением).
      */
-    public Map<String, String> findColumnValues(String table, List<String> columns, UUID consentUuid) {
+    public List<Map<String, String>> findRows(String table, UUID consentUuid) {
         String keyColumn = TABLE_CONSENT.equals(table) ? COL_UUID : COL_CONSENT_UUID;
-        String selectColumns = columns.stream()
-                .map(DbClient::validateIdentifier)
-                .map(column -> column + "::text")
-                .collect(Collectors.joining(", "));
-        Map<String, Object> row = jdbcTemplate.queryForMap(
-                "SELECT " + selectColumns + " FROM " + validateIdentifier(table)
-                        + " WHERE " + keyColumn + " = ?",
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList(
+                "SELECT * FROM " + validateIdentifier(table) + " WHERE " + keyColumn + " = ?",
                 consentUuid);
-        Map<String, String> result = new LinkedHashMap<>();
-        row.forEach((column, value) -> result.put(column, value != null ? value.toString() : null));
-        return result;
+        return rows.stream()
+                .map(row -> {
+                    Map<String, String> converted = new LinkedHashMap<>();
+                    row.forEach((column, value) -> converted.put(column, value != null ? value.toString() : null));
+                    return converted;
+                })
+                .collect(Collectors.toList());
     }
 
     /** Имена таблиц/колонок подставляются в SQL — пропускаем только простые идентификаторы. */

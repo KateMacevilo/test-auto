@@ -16,6 +16,6 @@ public class Expected {
      * 2xx → CLEANUP, 4xx/5xx → ABSENT.
      */
     private DbState dbState;
-    /** Проверки сохранённых в БД значений: таблица + колонка + ожидаемое значение */
-    private List<DbParam> dbParams;
+    /** Проверки сохранённых в БД строк: таблица + набор ожидаемых строк ({колонка: значение}) */
+    private List<DbTable> dbParams;
 }

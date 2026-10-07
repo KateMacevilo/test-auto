@@ -16,8 +16,8 @@ import org.testng.annotations.Test;
 import tests.common.AbstractApiTest;
 import tests.common.assertions.Assertions;
 import tests.common.dataprovider.DataProviders;
-import tests.common.model.DbParam;
 import tests.common.model.DbState;
+import tests.common.model.DbTable;
 import tests.common.model.Input;
 import tests.common.model.TestData;
 import tests.common.wiremock.Downstream;
@@ -30,8 +30,8 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 import static io.qameta.allure.Allure.step;
 
@@ -207,8 +207,9 @@ public class Tests extends AbstractApiTest {
      * Проверка БД по x-idempotency-key кейса. Тип проверки — из данных кейса
      * (expected.dbState); если не задан, выводится из statusCode: 2xx → запись
      * удаляется после проверки (CLEANUP), 4xx/5xx → записей быть не должно (ABSENT).
-     * Ожидаемые сохранённые значения — в expected.dbParams (список {table, column, value},
-     * напр. {"table": "list_passports_payment_consent", "column": "amount", "value": "150.00"}).
+     * Ожидаемые сохранённые строки — в expected.dbParams: на таблицу — список ожидаемых
+     * строк ({колонка: значение}), напр. {"table": "multi_authorisation", "rows":
+     * [{"sign_group_code": "1", "sign": "0"}, {"sign_group_code": "2", "sign": "0"}]}.
      */
     private void verifyDbState(TestData testData) {
         String idempotencyKey = testData.getInput().getHeaders() != null
@@ -240,25 +241,30 @@ public class Tests extends AbstractApiTest {
         }
     }
 
-    /** Сверка сохранённых в БД значений с ожидаемыми из кейса (expected.dbParams). */
-    private void verifyDbParams(UUID consentUuid, List<DbParam> dbParams) {
+    /**
+     * Сверка сохранённых в БД строк с ожидаемыми из кейса (expected.dbParams).
+     * На таблицу — один запрос, дальше каждая ожидаемая строка ищется среди фактических:
+     * должна существовать строка, у которой все перечисленные в кейсе колонки равны
+     * ожидаемым значениям (экзистенциальная проверка — так описываются и одиночные строки,
+     * и наборы строк с разными значениями, напр. sign_group_code = 1 и 2).
+     */
+    private void verifyDbParams(UUID consentUuid, List<DbTable> dbParams) {
         if (dbParams == null) {
             return;
         }
-        // Одним запросом на таблицу вычитываем все запрошенные колонки, затем сверяем значения
-        Map<String, List<DbParam>> paramsByTable = dbParams.stream()
-                .collect(Collectors.groupingBy(DbParam::getTable));
-        paramsByTable.forEach((table, params) -> {
-            List<String> columns = params.stream()
-                    .map(DbParam::getColumn)
-                    .distinct()
-                    .toList();
-            Map<String, String> row = dbClient.findColumnValues(table, columns, consentUuid);
-            params.forEach(dbParam -> Assert.assertEquals(
-                    row.get(dbParam.getColumn()), dbParam.getValue(),
-                    "DB value mismatch: " + table + "." + dbParam.getColumn()
-                            + " for consent " + consentUuid));
+        dbParams.forEach(dbTable -> {
+            List<Map<String, String>> actualRows = dbClient.findRows(dbTable.getTable(), consentUuid);
+            dbTable.getRows().forEach(expectedRow -> Assert.assertTrue(
+                    actualRows.stream().anyMatch(actualRow -> matchesRow(actualRow, expectedRow)),
+                    "No row in " + dbTable.getTable() + " matching " + expectedRow
+                            + " for consent " + consentUuid + " — actual rows: " + actualRows));
         });
+    }
+
+    /** Строка таблицы совпадает с ожидаемой, если все перечисленные в ней колонки равны. */
+    private boolean matchesRow(Map<String, String> actualRow, Map<String, String> expectedRow) {
+        return expectedRow.entrySet().stream()
+                .allMatch(e -> Objects.equals(actualRow.get(e.getKey()), e.getValue()));
     }
 
     // --- Общие шаги сценариев с состоянием ---
