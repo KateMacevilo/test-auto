@@ -29,8 +29,12 @@ public class WireMockStubs {
 
     private final String wireMockUrl;
 
-    /** Секции стабов, созданных этим компонентом за прогон — удаляем только их. */
-    private final Set<String> createdSections = new LinkedHashSet<>();
+    /**
+     * Секции стабов, созданных этим компонентом за прогон — удаляем только их.
+     * AGENTS.md: инициализация ленивая — в некоторых окружениях (проксирование бина
+     * Spring'ом) поле может остаться null, поэтому доступ только через sections().
+     */
+    private Set<String> createdSections;
     /** Были ли созданы стабы без секции — такие удаляются только полным сбросом. */
     private boolean hasUnsectionedStubs;
 
@@ -82,7 +86,7 @@ public class WireMockStubs {
         }
         if (downstream.getSection() != null) {
             mapping.put("metadata", Map.of("section", downstream.getSection()));
-            createdSections.add(downstream.getSection());
+            sections().add(downstream.getSection());
         } else {
             hasUnsectionedStubs = true;
         }
@@ -135,9 +139,11 @@ public class WireMockStubs {
      * Безопасно вызывать повторно и когда ничего не создавалось.
      */
     public void deleteCreatedStubs() {
-        createdSections.forEach(section -> {
+        Set<String> sections = sections();
+        sections.forEach(section -> {
+            // remove-by-metadata требует matcher-формат значений ({equalTo: ...}), plain-строка — 422
             var response = given().contentType(ContentType.JSON)
-                    .body(Map.of("metadata", Map.of("section", section)))
+                    .body(Map.of("metadata", equalToMatchers(Map.of("section", section))))
                     .post(wireMockUrl + "/__admin/mappings/remove-by-metadata")
                     .then().extract().response();
             if (response.statusCode() != 200) {
@@ -146,10 +152,10 @@ public class WireMockStubs {
                         + "': " + response.statusCode() + " " + response.body().asString());
             }
         });
-        if (!createdSections.isEmpty()) {
-            log.info("WireMock stubs deleted for sections: {}", createdSections);
+        if (!sections.isEmpty()) {
+            log.info("WireMock stubs deleted for sections: {}", sections);
         }
-        createdSections.clear();
+        sections.clear();
         if (hasUnsectionedStubs) {
             log.warn("Unsectioned stubs were created — falling back to full reset");
             deleteAllMappings();
@@ -193,6 +199,14 @@ public class WireMockStubs {
             throw new IllegalArgumentException(
                     "Downstream '" + downstream.getName() + "' must define method and urlPath");
         }
+    }
+
+    /** Ленивый доступ к createdSections — поле может быть null (см. объявление). */
+    private Set<String> sections() {
+        if (createdSections == null) {
+            createdSections = new LinkedHashSet<>();
+        }
+        return createdSections;
     }
 
     /** Матчеры WireMock вида {ключ: {equalTo: значение}} для query-параметров/header'ов. */
