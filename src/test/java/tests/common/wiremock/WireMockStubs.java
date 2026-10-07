@@ -6,7 +6,9 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.Map;
+import java.util.Set;
 
 import static io.restassured.RestAssured.given;
 
@@ -26,6 +28,11 @@ import static io.restassured.RestAssured.given;
 public class WireMockStubs {
 
     private final String wireMockUrl;
+
+    /** Секции стабов, созданных этим компонентом за прогон — удаляем только их. */
+    private final Set<String> createdSections = new LinkedHashSet<>();
+    /** Были ли созданы стабы без секции — такие удаляются только полным сбросом. */
+    private boolean hasUnsectionedStubs;
 
     public WireMockStubs(@Value("${wiremock.url}") String wireMockUrl) {
         this.wireMockUrl = wireMockUrl;
@@ -56,6 +63,16 @@ public class WireMockStubs {
             response.put("jsonBody", downstream.getBody());
         }
         mapping.put("response", response);
+        // имя и секция (поле Section в UI WireMock) — для навигации и точечного удаления
+        if (downstream.getName() != null) {
+            mapping.put("name", downstream.getName());
+        }
+        if (downstream.getSection() != null) {
+            mapping.put("metadata", Map.of("section", downstream.getSection()));
+            createdSections.add(downstream.getSection());
+        } else {
+            hasUnsectionedStubs = true;
+        }
         uploadStub(mapping);
     }
 
@@ -98,7 +115,29 @@ public class WireMockStubs {
                 .extract().jsonPath().getLong("count");
     }
 
-    /** Удаляет все маппинги (очистка WireMock после завершения всех тестов). */
+    /**
+     * Удаляет стабы, созданные этим компонентом за прогон: по секциям через
+     * remove-by-metadata (чужие маппинги на инстансе не трогает). Если какие-то
+     * стабы создавались без секции — полный сброс (их точечно не удалить).
+     * Безопасно вызывать повторно и когда ничего не создавалось.
+     */
+    public void deleteCreatedStubs() {
+        createdSections.forEach(section -> given().contentType(ContentType.JSON)
+                .body(Map.of("metadata", Map.of("section", section)))
+                .post(wireMockUrl + "/__admin/mappings/remove-by-metadata")
+                .then().statusCode(200));
+        if (!createdSections.isEmpty()) {
+            log.info("WireMock stubs deleted for sections: {}", createdSections);
+        }
+        createdSections.clear();
+        if (hasUnsectionedStubs) {
+            log.warn("Unsectioned stubs were created — falling back to full reset");
+            deleteAllMappings();
+            hasUnsectionedStubs = false;
+        }
+    }
+
+    /** Удаляет ВСЕ маппинги (полный сброс инстанса; чужие стабы тоже удалятся). */
     public void deleteAllMappings() {
         given().post(wireMockUrl + "/__admin/mappings/reset")
                 .then().statusCode(200);

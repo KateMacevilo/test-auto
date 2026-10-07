@@ -33,4 +33,11 @@ public class Downstream {
     private Map<String, String> queryParams;
     /** Header'ы для сопоставления запроса — аналогично queryParams. Опционально. */
     private Map<String, String> headers;
+    /**
+     * Секция стаба (поле Section в UI WireMock) — уходит в metadata маппинга:
+     * группирует стабы в списке и позволяет удалять их точечно (remove-by-metadata),
+     * а не сбросом всего инстанса. Опционально; стабы без секции удаляются
+     * только полным сбросом.
+     */
+    private String section;
 }

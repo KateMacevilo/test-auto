@@ -75,8 +75,10 @@ public class Tests extends AbstractApiTest {
      * Даунстримы и их ответы (метод, путь, статус, тело) полностью описаны в данных кейса —
      * списком downstreams, его порядок задаёт порядок предпроверки/проверки. Реестра
      * даунстримов в коде нет: каждый кейс объявляет только свои заглушки.
-     * Перед кейсом стабы его даунстримов пересоздаются (чистые маппинги), после завершения
-     * ВСЕХ тестов — удаляются (см. deleteWireMockStubs).
+     * Перед кейсом стабы его даунстримов пересоздаются (свои прошлые удаляются по секциям,
+     * выставляются ответы из данных), после завершения ВСЕХ тестов созданные стабы
+     * удаляются по секциям (см. deleteWireMockStubs) — чужие маппинги на инстансе
+     * не трогаются.
      * Прогон только локально: при wiremock.cases.enabled=false кейс скипается.
      * Поток кейса: стабы → предпроверка (в порядке списка) → счётчики обращений →
      * запрос к сервису → проверка, что сервис реально дёрнул каждый даунстрим сценария.
@@ -91,8 +93,8 @@ public class Tests extends AbstractApiTest {
         }
         List<Downstream> downstreams = testData.getDownstreams() != null
                 ? testData.getDownstreams() : List.of();
-        // Шаг 1: чистые стабы под этот кейс — ответы из данных
-        wireMockStubs.deleteAllMappings();
+        // Шаг 1: чистые стабы под этот кейс — удаляем свои прошлые, выставляем ответы из данных
+        wireMockStubs.deleteCreatedStubs();
         downstreams.forEach(wireMockStubs::createStub);
         // Шаг 2: стабы отвечают как ожидает кейс (иначе смысла гонять его нет) — в порядке списка
         downstreams.forEach(wireMockStubs::verifyStubResponds);
@@ -114,13 +116,13 @@ public class Tests extends AbstractApiTest {
         return counts;
     }
 
-    /** Удаляет все стабы WireMock после завершения тестов класса (выполняется всегда). */
+    /** Удаляет созданные тестами стабы WireMock после завершения тестов (выполняется всегда). */
     @AfterClass(alwaysRun = true)
     public void deleteWireMockStubs() {
         if (!wireMockCasesEnabled) {
             return;
         }
-        wireMockStubs.deleteAllMappings();
+        wireMockStubs.deleteCreatedStubs();
     }
 
     /** Общее тело прогона кейса создания согласия: POST → статус → (схема) → параметры → БД. */
