@@ -30,13 +30,13 @@ public class WireMockStubs {
     private final String wireMockUrl;
 
     /**
-     * Секции стабов, созданных этим компонентом за прогон — удаляем только их.
+     * Id стабов, созданных этим компонентом за прогон — удаляем только их (DELETE by id).
      * AGENTS.md: инициализация ленивая — в некоторых окружениях (проксирование бина
-     * Spring'ом) поле может остаться null, поэтому доступ только через sections().
+     * Spring'ом) поле может остаться null, поэтому доступ только через createdIds().
+     * Удаление по секциям (remove-by-metadata) не используем — в части версий WireMock
+     * endpoint работает нестабильно (422); id надежнее.
      */
-    private Set<String> createdSections;
-    /** Были ли созданы стабы без секции — такие удаляются только полным сбросом. */
-    private boolean hasUnsectionedStubs;
+    private Set<String> createdStubIds;
 
     public WireMockStubs(@Value("${wiremock.url}") String wireMockUrl) {
         this.wireMockUrl = wireMockUrl;
@@ -80,17 +80,14 @@ public class WireMockStubs {
             response.put("jsonBody", downstream.getBody());
         }
         mapping.put("response", response);
-        // имя и секция (поле Section в UI WireMock) — для навигации и точечного удаления
+        // имя и секция (поле Section в UI WireMock) — для навигации в UI; удаление — по id
         if (downstream.getName() != null) {
             mapping.put("name", downstream.getName());
         }
         if (downstream.getSection() != null) {
             mapping.put("metadata", Map.of("section", downstream.getSection()));
-            sections().add(downstream.getSection());
-        } else {
-            hasUnsectionedStubs = true;
         }
-        uploadStub(mapping);
+        createdIds().add(uploadStub(mapping));
     }
 
     /**
@@ -133,34 +130,30 @@ public class WireMockStubs {
     }
 
     /**
-     * Удаляет стабы, созданные этим компонентом за прогон: по секциям через
-     * remove-by-metadata (чужие маппинги на инстансе не трогает). Если какие-то
-     * стабы создавались без секции — полный сброс (их точечно не удалить).
+     * Удаляет стабы, созданные этим компонентом за прогон, по их id
+     * (DELETE /__admin/mappings/{id} — чужие маппинги на инстансе не трогает).
      * Безопасно вызывать повторно и когда ничего не создавалось.
      */
     public void deleteCreatedStubs() {
-        Set<String> sections = sections();
-        sections.forEach(section -> {
-            // remove-by-metadata требует matcher-формат значений ({equalTo: ...}), plain-строка — 422
-            var response = given().contentType(ContentType.JSON)
-                    .body(Map.of("metadata", equalToMatchers(Map.of("section", section))))
-                    .post(wireMockUrl + "/__admin/mappings/remove-by-metadata")
+        Set<String> ids = createdIds();
+        ids.forEach(id -> {
+            var response = given().delete(wireMockUrl + "/__admin/mappings/" + id)
                     .then().extract().response();
+            // 404 — стаб уже удалён (вручную/другим прогоном) — не ошибка; прогон не ломаем
+            if (response.statusCode() == 404) {
+                log.warn("WireMock stub {} already absent", id);
+                return;
+            }
             if (response.statusCode() != 200) {
-                // тело ответа — детали ошибки WireMock (причина 4xx), без него диагностика невозможна
-                throw new IllegalStateException("remove-by-metadata failed for section '" + section
+                // тело ответа — детали ошибки WireMock, без него диагностика невозможна
+                throw new IllegalStateException("Delete stub failed for id '" + id
                         + "': " + response.statusCode() + " " + response.body().asString());
             }
         });
-        if (!sections.isEmpty()) {
-            log.info("WireMock stubs deleted for sections: {}", sections);
+        if (!ids.isEmpty()) {
+            log.info("WireMock stubs deleted: {} mappings", ids.size());
         }
-        sections.clear();
-        if (hasUnsectionedStubs) {
-            log.warn("Unsectioned stubs were created — falling back to full reset");
-            deleteAllMappings();
-            hasUnsectionedStubs = false;
-        }
+        ids.clear();
     }
 
     /** true, если на инстансе уже есть стаб с тем же методом и путем. */
@@ -186,12 +179,18 @@ public class WireMockStubs {
         log.info("WireMock mappings deleted");
     }
 
-    /** Загрузка произвольного маппинга в нативном формате WireMock. */
-    public void uploadStub(Object mapping) {
-        given().contentType(ContentType.JSON).body(mapping)
+    /**
+     * Загрузка произвольного маппинга в нативном формате WireMock.
+     * Возвращает id созданного стаба (при создании через createStub id запоминается
+     * для deleteCreatedStubs; при прямом вызове uploadStub стаб в учёт не берётся).
+     */
+    public String uploadStub(Object mapping) {
+        var response = given().contentType(ContentType.JSON).body(mapping)
                 .post(wireMockUrl + "/__admin/mappings")
-                .then().statusCode(201);
+                .then().statusCode(201)
+                .extract().response();
         log.info("WireMock stub created: {}", mapping);
+        return response.jsonPath().getString("id");
     }
 
     private void validate(Downstream downstream) {
@@ -201,12 +200,12 @@ public class WireMockStubs {
         }
     }
 
-    /** Ленивый доступ к createdSections — поле может быть null (см. объявление). */
-    private Set<String> sections() {
-        if (createdSections == null) {
-            createdSections = new LinkedHashSet<>();
+    /** Ленивый доступ к createdStubIds — поле может быть null (см. объявление). */
+    private Set<String> createdIds() {
+        if (createdStubIds == null) {
+            createdStubIds = new LinkedHashSet<>();
         }
-        return createdSections;
+        return createdStubIds;
     }
 
     /** Матчеры WireMock вида {ключ: {equalTo: значение}} для query-параметров/header'ов. */
