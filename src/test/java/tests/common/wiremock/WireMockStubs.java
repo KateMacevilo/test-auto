@@ -38,6 +38,19 @@ public class WireMockStubs {
         this.wireMockUrl = wireMockUrl;
     }
 
+    /**
+     * Создаёт стаб для даунстрима, если стаб с таким методом и путем ещё не выставлен
+     * (проверка по списку маппингов инстанса) — повторное создание не нужно.
+     */
+    public void createStubIfAbsent(Downstream downstream) {
+        if (stubExists(downstream)) {
+            log.info("WireMock stub already exists: {} {} — skipping creation",
+                    downstream.getMethod(), downstream.getUrlPath());
+            return;
+        }
+        createStub(downstream);
+    }
+
     /** Создаёт стаб для даунстрима (через Admin API) с ответом из описания даунстрима. */
     public void createStub(Downstream downstream) {
         validate(downstream);
@@ -122,10 +135,17 @@ public class WireMockStubs {
      * Безопасно вызывать повторно и когда ничего не создавалось.
      */
     public void deleteCreatedStubs() {
-        createdSections.forEach(section -> given().contentType(ContentType.JSON)
-                .body(Map.of("metadata", Map.of("section", section)))
-                .post(wireMockUrl + "/__admin/mappings/remove-by-metadata")
-                .then().statusCode(200));
+        createdSections.forEach(section -> {
+            var response = given().contentType(ContentType.JSON)
+                    .body(Map.of("metadata", Map.of("section", section)))
+                    .post(wireMockUrl + "/__admin/mappings/remove-by-metadata")
+                    .then().extract().response();
+            if (response.statusCode() != 200) {
+                // тело ответа — детали ошибки WireMock (причина 4xx), без него диагностика невозможна
+                throw new IllegalStateException("remove-by-metadata failed for section '" + section
+                        + "': " + response.statusCode() + " " + response.body().asString());
+            }
+        });
         if (!createdSections.isEmpty()) {
             log.info("WireMock stubs deleted for sections: {}", createdSections);
         }
@@ -135,6 +155,22 @@ public class WireMockStubs {
             deleteAllMappings();
             hasUnsectionedStubs = false;
         }
+    }
+
+    /** true, если на инстансе уже есть стаб с тем же методом и путем. */
+    private boolean stubExists(Downstream downstream) {
+        var response = given().get(wireMockUrl + "/__admin/mappings").then().extract().response();
+        if (response.statusCode() != 200) {
+            throw new IllegalStateException("Failed to list WireMock mappings: "
+                    + response.statusCode() + " " + response.body().asString());
+        }
+        return response.jsonPath().<Map<String, Object>>getList("mappings").stream()
+                .anyMatch(mapping -> {
+                    Map<String, Object> request = (Map<String, Object>) mapping.get("request");
+                    return request != null
+                            && downstream.getMethod().equals(request.get("method"))
+                            && downstream.getUrlPath().equals(request.get("urlPath"));
+                });
     }
 
     /** Удаляет ВСЕ маппинги (полный сброс инстанса; чужие стабы тоже удалятся). */

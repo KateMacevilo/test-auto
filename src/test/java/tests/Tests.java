@@ -93,9 +93,9 @@ public class Tests extends AbstractApiTest {
         }
         List<Downstream> downstreams = testData.getDownstreams() != null
                 ? testData.getDownstreams() : List.of();
-        // Шаг 1: чистые стабы под этот кейс — удаляем свои прошлые, выставляем ответы из данных
+        // Шаг 1: стабы под этот кейс — свои прошлые удаляем, существующие (чужие/наши) не дублируем
         wireMockStubs.deleteCreatedStubs();
-        downstreams.forEach(wireMockStubs::createStub);
+        downstreams.forEach(wireMockStubs::createStubIfAbsent);
         // Шаг 2: стабы отвечают как ожидает кейс (иначе смысла гонять его нет) — в порядке списка
         downstreams.forEach(wireMockStubs::verifyStubResponds);
         // Шаг 3: сколько раз даунстримы уже дёргались (журнал общий на прогон)
