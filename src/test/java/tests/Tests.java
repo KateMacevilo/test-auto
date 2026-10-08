@@ -18,6 +18,7 @@ import tests.common.allure.AllureCaseInfo;
 import tests.common.assertions.Assertions;
 import tests.common.dataprovider.DataProviders;
 import tests.common.dataprovider.TestDataValidator;
+import tests.common.model.DbSetup;
 import tests.common.model.DbState;
 import tests.common.model.DbTable;
 import tests.common.model.Input;
@@ -273,6 +274,23 @@ public class Tests extends AbstractApiTest {
                     actualRows.stream().anyMatch(actualRow -> matchesRow(actualRow, expectedRow)),
                     "No row in " + dbTable.getTable() + " matching " + expectedRow
                             + " for consent " + consentUuid + " — actual rows: " + actualRows));
+        });
+    }
+
+    /**
+     * Подготовка БД из данных кейса (dbSetup): UPDATE колонок строк согласия по UUID.
+     * Применяется в сценарных методах ПОСЛЕ создания согласия через API и ДО тестируемого
+     * вызова — доводит запись до состояния, недостижимого через API (напр. меняет статус).
+     * Обновление 0 строк — падение: согласие должно было быть создано на предыдущем шаге.
+     */
+    private void applyDbSetup(UUID consentUuid, TestData testData) {
+        if (testData.getDbSetup() == null) {
+            return;
+        }
+        testData.getDbSetup().forEach(setup -> {
+            int updated = dbClient.updateColumns(setup.getTable(), setup.getColumns(), consentUuid);
+            Assert.assertTrue(updated > 0,
+                    "dbSetup updated 0 rows in " + setup.getTable() + " for consent " + consentUuid);
         });
     }
 

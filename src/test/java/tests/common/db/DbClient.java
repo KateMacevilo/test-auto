@@ -6,6 +6,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.SimpleDriverDataSource;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -85,9 +86,29 @@ public class DbClient {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * UPDATE колонок строки по UUID согласия — подготовка данных кейса (TestData.dbSetup):
+     * доводит созданное через API согласие до нужного состояния (напр. меняет статус).
+     * Ключ строки — как в findRows: uuid в основной таблице, list_passports_payment_consent_uuid
+     * в дочерних. Возвращает число обновлённых строк — 0 означает, что строки нет (падение в тесте).
+     */
+    public int updateColumns(String table, Map<String, String> columns, UUID consentUuid) {
+        String keyColumn = TABLE_CONSENT.equals(table) ? COL_UUID : COL_CONSENT_UUID;
+        String setClause = columns.keySet().stream()
+                .map(DbClient::validateIdentifier)
+                .map(column -> column + " = ?")
+                .collect(Collectors.joining(", "));
+        List<Object> args = new ArrayList<>(columns.values());
+        args.add(consentUuid);
+        int updated = jdbcTemplate.update(
+                "UPDATE " + validateIdentifier(table) + " SET " + setClause + " WHERE " + keyColumn + " = ?",
+                args.toArray());
+        log.info("Updated {} row(s) in {} (consent {})", updated, table, consentUuid);
+        return updated;
+    }
+
     /** Имена таблиц/колонок подставляются в SQL — пропускаем только простые идентификаторы. */
-    private static String validateIdentifier(String identifier) {
-        if (identifier == null || !identifier.matches("[a-zA-Z_][a-zA-Z0-9_]*")) {
+    private static String validateIdentifier(String identifier) {        if (identifier == null || !identifier.matches("[a-zA-Z_][a-zA-Z0-9_]*")) {
             throw new IllegalArgumentException("Invalid SQL identifier in dbParams: " + identifier);
         }
         return identifier;

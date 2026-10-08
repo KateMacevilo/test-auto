@@ -27,11 +27,12 @@ import java.util.stream.Collectors;
 public final class TestDataValidator {
 
     private static final Set<String> TEST_DATA_KEYS =
-            Set.of("id", "name", "description", "local", "input", "expected", "downstreams");
+            Set.of("id", "name", "description", "local", "input", "expected", "downstreams", "dbSetup");
     private static final Set<String> INPUT_KEYS = Set.of("contentType", "headers", "body");
     private static final Set<String> EXPECTED_KEYS =
             Set.of("statusCode", "params", "verifySchema", "dbState", "dbParams");
     private static final Set<String> DB_TABLE_KEYS = Set.of("table", "rows");
+    private static final Set<String> DB_SETUP_KEYS = Set.of("table", "columns");
     private static final Set<String> DOWNSTREAM_KEYS =
             Set.of("name", "method", "urlPath", "status", "body", "section", "queryParams", "headers");
     private static final Set<String> DB_STATES =
@@ -93,6 +94,23 @@ public final class TestDataValidator {
         }
         if (testData.has("downstreams")) {
             validateDownstreams(testData.get("downstreams"), source, path + ".downstreams");
+        }
+        if (testData.has("dbSetup")) {
+            if (!testData.get("dbSetup").isJsonArray()) {
+                throw error(source, path + ".dbSetup", "expected array of {table, columns} objects");
+            }
+            int[] i = {0};
+            testData.getAsJsonArray("dbSetup").forEach(setupElement -> {
+                String setupPath = path + ".dbSetup[" + i[0]++ + "]";
+                JsonObject setup = requireObject(setupElement, source, setupPath);
+                checkKeys(setup, DB_SETUP_KEYS, source, setupPath);
+                if (!setup.has("table") || !setup.get("table").isJsonPrimitive()) {
+                    throw error(source, setupPath + ".table", "expected string — обязательное поле");
+                }
+                if (!setup.has("columns") || !setup.get("columns").isJsonObject()) {
+                    throw error(source, setupPath + ".columns", "expected {column: value} object — обязательное поле");
+                }
+            });
         }
     }
 
