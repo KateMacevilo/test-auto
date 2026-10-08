@@ -8,6 +8,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import tests.common.model.Input;
 
+import java.util.Map;
+
 @Slf4j
 @RequiredArgsConstructor
 public class TemplateRequest {
@@ -39,5 +41,19 @@ public class TemplateRequest {
         ResponseSpecBuilder respSpecBuilder = baseRequest.getDefaultResponseSpecification();
 
         return baseRequest.sendRequest(reqSpecBuilder.build(), respSpecBuilder.build(), Method.POST, path);
+    }
+
+    /** GET согласия по id: GET /api/paymentConsents/listPassports/{path}. Тело не передаётся. */
+    public ValidatableResponse getPaymentConsent(BaseRequest baseRequest, String url, String path,
+                                                 Map<String, String> headers) {
+        String fullPath = String.format("%s%s%s", url, CONSENT_PATH, path);
+
+        RequestSpecBuilder reqSpecBuilder = baseRequest.getDefaultRequestSpecification()
+                .addHeader("Authorization", baseRequest.setAuth(SCOPE))
+                .addHeaders(headers);
+
+        ResponseSpecBuilder respSpecBuilder = baseRequest.getDefaultResponseSpecification();
+
+        return baseRequest.sendRequest(reqSpecBuilder.build(), respSpecBuilder.build(), Method.GET, fullPath);
     }
 }

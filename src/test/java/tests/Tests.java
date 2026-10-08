@@ -43,7 +43,8 @@ import static io.qameta.allure.Allure.step;
  * Каждый тест-кейс — json-файл (или массив параметризаций в одном файле), связь с методом —
  * по имени: FileDP вычитывает файл с именем метода, AllFilesDP — все файлы из testdata/api/.
  * Простые кейсы «один запрос → один ответ» сводятся к универсальному createConsent;
- * сценарии с состоянием (идемпотентность) — отдельными методами ниже.
+ * получение согласия — универсальный getConsent (запись создаёт сам, состояние БД
+ * доводит dbSetup); сценарии с состоянием (идемпотентность) — отдельными методами ниже.
  */
 @Slf4j
 @Feature("Создание согласия на инициирование платежа")
@@ -74,6 +75,71 @@ public class Tests extends AbstractApiTest {
     public void createConsent(TestData testData) {
         AllureCaseInfo.apply(testData);
         sendAndVerifyConsent(testData);
+    }
+
+    /**
+     * GET согласия (listPassports) — универсальный раннер по кейсам из testdata/get/.
+     * Кейс предполагает, что запись есть в БД, поэтому раннер сам создаёт согласие:
+     * Шаг 1: POST — создание согласия (тело и заголовки — из input кейса);
+     * Шаг 2: подготовка БД (dbSetup) — доводит запись до состояния, недостижимого
+     *        через API создания (напр. меняет статус) — разные значения = разные кейсы;
+     * Шаг 3: тестируемый вызов — GET /api/paymentConsents/listPassports/{consentId}
+     *        (input.path: "{consentId}" — созданное согласие, "{randomUuid}" — случайный id);
+     * Шаг 4: сверка ответа (статус, схема, params) и БД (expected.dbParams);
+     * запись удаляется в finally (cleanupConsent).
+     * Поле expected.dbState не используется — созданная запись всегда чистится в конце.
+     */
+    @Link(name = "api-listpassportsconsent [Confluence]", url = CONFLUENCE)
+    @Story("Получение согласия (listPassports)")
+    @Test(dataProvider = "GetFilesDP", dataProviderClass = DataProviders.class, priority = 3)
+    public void getConsent(TestData testData) {
+        AllureCaseInfo.apply(testData);
+        String idempotencyKey = uniqueIdempotencyKey();
+        UUID consentUuid = null;
+
+        try {
+            // Шаг 1: согласие создаётся через API — GET-кейс предполагает, что запись уже есть в БД
+            step("Шаг 1: POST — создание согласия, к которому обращаемся через GET",
+                    () -> postConsentAndVerifyCreated(testData, idempotencyKey));
+            consentUuid = dbClient.findConsentUuidByIdempotencyKey(idempotencyKey)
+                    .orElseThrow(() -> new AssertionError(
+                            "Consent not found in DB for idempotency key " + idempotencyKey));
+            final UUID createdUuid = consentUuid;
+
+            // Шаг 2: доводка состояния БД из данных кейса (dbSetup) — напр. установка статуса
+            step("Шаг 2: подготовка БД (dbSetup)", () -> applyDbSetup(createdUuid, testData));
+
+            // Шаг 3: тестируемый вызов — GET согласия по id
+            Response response = step("Шаг 3: GET /api/paymentConsents/listPassports/{consentId}",
+                    () -> templateRequest.getPaymentConsent(baseRequest, url,
+                            resolveGetPath(testData, createdUuid), testData.getInput().getHeaders())
+                            .extract().response());
+            Assertions.verifyStatusCode(response, testData.getExpected().getStatusCode());
+            if (Boolean.TRUE.equals(testData.getExpected().getVerifySchema())) {
+                verifyConsentSchema(response);
+            }
+            Assertions.verifyResponseParam(response, testData.getExpected().getParams());
+            if (testData.getExpected().getStatusCode() < 300) {
+                Assert.assertEquals(response.jsonPath().getString("data.listPassportsConsentId"),
+                        createdUuid.toString(), "GET must return the consent created at step 1");
+            }
+
+            // Шаг 4: проверка БД (expected.dbParams)
+            verifyDbParams(createdUuid, testData.getExpected().getDbParams());
+        } finally {
+            cleanupConsent(consentUuid);
+        }
+    }
+
+    /**
+     * Path GET-запроса из данных кейса (input.path): "{consentId}" — согласие, созданное
+     * на шаге 1 (по умолчанию), "{randomUuid}" — случайный UUID (кейсы "запись не найдена").
+     */
+    private String resolveGetPath(TestData testData, UUID consentUuid) {
+        String path = testData.getInput().getPath() != null
+                ? testData.getInput().getPath() : "{consentId}";
+        return path.replace("{consentId}", consentUuid.toString())
+                .replace("{randomUuid}", UUID.randomUUID().toString());
     }
 
     /**
