@@ -19,7 +19,7 @@ import java.util.stream.Collectors;
 /**
  * AGENTS.md: методы getTestData / getTestDataForKafka / getTestDataFile / getSuppliedTestDataFile
  * восстановлены дословно по скриншоту из рабочего проекта — НЕ ИЗМЕНЯТЬ.
- * Доработанный/добавленный метод — только allFilesDP (см. ниже).
+ * Добавленные методы — allFilesDP (фильтр файлов по имени вызывающего метода) / wireMockDP (см. ниже).
  */
 @UtilityClass
 public class DataProviders {
@@ -49,7 +49,7 @@ public class DataProviders {
 
     // ===== Доработка: прогон всех кейсов каталога одним универсальным методом =====
 
-    private static final String API_CASES_DIR = "testdata/api/";
+    private static final String CASES_DIR = "testdata/";
     private static final String WIREMOCK_CASES_DIR = "testdata/wiremock/";
 
     /** Резолвим файлы через classpath — как и остальные провайдеры (getResourceAsStream), а не через файловую систему. */
@@ -57,14 +57,15 @@ public class DataProviders {
             new PathMatchingResourcePatternResolver(DataProviders.class.getClassLoader());
 
     /**
-     * Все тест-кейсы из всех json-файлов каталога testdata/api/ (каждый файл — массив
-     * объектов TestData). Имена файлов не привязаны к именам методов. Файлы читаются
+     * Все тест-кейсы из json-файлов каталога testdata/, относящиеся к вызывающему методу:
+     * имя файла должно начинаться с имени метода в lower_snake (createConsent → create_consent*.json,
+     * getConsent → get_consent*.json). Каждый файл — массив объектов TestData, файлы читаются
      * в отсортированном порядке — детерминированный порядок прогона.
-     * Пустой каталог или нечитаемый файл — ошибка прогона (а не тихий skip с пустыми данными).
+     * Отсутствие файлов под метод или нечитаемый файл — ошибка прогона (а не тихий skip с пустыми данными).
      */
     @DataProvider(name = "AllFilesDP")
-    public static Iterator<Object[]> allFilesDP() throws IOException {
-        return allCasesFrom(API_CASES_DIR);
+    public static Iterator<Object[]> allFilesDP(Method method) throws IOException {
+        return allCasesFrom(CASES_DIR, toSnakeCase(method.getName()));
     }
 
     /**
@@ -73,17 +74,23 @@ public class DataProviders {
      */
     @DataProvider(name = "WireMockDP")
     public static Iterator<Object[]> wireMockDP() throws IOException {
-        return allCasesFrom(WIREMOCK_CASES_DIR);
+        return allCasesFrom(WIREMOCK_CASES_DIR, null);
     }
 
-    private static Iterator<Object[]> allCasesFrom(String dir) throws IOException {
+    private static String toSnakeCase(String methodName) {
+        return methodName.replaceAll("([a-z0-9])([A-Z])", "$1_$2").toLowerCase(java.util.Locale.ROOT);
+    }
+
+    private static Iterator<Object[]> allCasesFrom(String dir, String filePrefix) throws IOException {
         List<Resource> resources = Arrays.stream(
                         RESOURCE_RESOLVER.getResources("classpath*:/" + dir + "*.json"))
                 .filter(resource -> resource.getFilename() != null)
+                .filter(resource -> filePrefix == null || resource.getFilename().startsWith(filePrefix))
                 .sorted(Comparator.comparing(Resource::getFilename))
                 .collect(Collectors.toList());
         if (resources.isEmpty()) {
-            throw new IllegalStateException("No test case files (*.json) found in classpath:/" + dir);
+            throw new IllegalStateException("No test case files (*.json) found in classpath:/" + dir
+                    + (filePrefix != null ? " for method prefix '" + filePrefix + "'" : ""));
         }
         List<Object[]> allCases = new ArrayList<>();
         for (Resource resource : resources) {
