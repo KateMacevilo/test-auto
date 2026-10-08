@@ -14,8 +14,10 @@ import org.testng.SkipException;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.Test;
 import tests.common.AbstractApiTest;
+import tests.common.allure.AllureCaseInfo;
 import tests.common.assertions.Assertions;
 import tests.common.dataprovider.DataProviders;
+import tests.common.dataprovider.TestDataValidator;
 import tests.common.model.DbState;
 import tests.common.model.DbTable;
 import tests.common.model.Input;
@@ -57,6 +59,8 @@ public class Tests extends AbstractApiTest {
     @Story("Health check")
     @Test(dataProvider = "FileDP", dataProviderClass = DataProviders.class, priority = 1)
     public void getHealth(TestData testData) {
+        validateCaseFile("getHealth");
+        AllureCaseInfo.apply(testData);
         Response response = templateRequest.getHealth(baseRequest, url).extract().response();
         Assertions.verifyStatusCode(response, testData.getExpected().getStatusCode());
         Assertions.verifyResponseSchema(response, HEALTH_SCHEMA);
@@ -67,6 +71,7 @@ public class Tests extends AbstractApiTest {
     @Story("Создание согласия (listPassports)")
     @Test(dataProvider = "AllFilesDP", dataProviderClass = DataProviders.class, priority = 2)
     public void createConsent(TestData testData) {
+        AllureCaseInfo.apply(testData);
         sendAndVerifyConsent(testData);
     }
 
@@ -88,6 +93,7 @@ public class Tests extends AbstractApiTest {
     @Story("Создание согласия (listPassports): WireMock")
     @Test(dataProvider = "WireMockDP", dataProviderClass = DataProviders.class, priority = 4)
     public void createConsentWithWireMock(TestData testData) {
+        AllureCaseInfo.apply(testData);
         if (testData.isLocal() && !wireMockCasesEnabled) {
             throw new SkipException("Локальный WireMock-кейс пропущен: wiremock.cases.enabled=false (прогон в k8s)");
         }
@@ -125,6 +131,11 @@ public class Tests extends AbstractApiTest {
         wireMockStubs.deleteCreatedStubs();
     }
 
+    /** Валидация файла кейсов FileDP (дословный JSONReader её не делает — см. TestDataValidator). */
+    private void validateCaseFile(String resourcePath) {
+        TestDataValidator.validateResource(resourcePath, null);
+    }
+
     /** Общее тело прогона кейса создания согласия: POST → статус → (схема) → параметры → БД. */
     private void sendAndVerifyConsent(TestData testData) {
         Response response = templateRequest
@@ -142,6 +153,8 @@ public class Tests extends AbstractApiTest {
     @Story("Создание согласия (listPassports): идемпотентность")
     @Test(dataProvider = "FileDP", dataProviderClass = DataProviders.class, priority = 3)
     public void create_consent_idempotent_body_mismatch_conflict_409(TestData testData) {
+        validateCaseFile("create_consent_idempotent_body_mismatch_conflict_409");
+        AllureCaseInfo.apply(testData);
         String idempotencyKey = uniqueIdempotencyKey();
         UUID consentUuid = null;
 
@@ -175,6 +188,8 @@ public class Tests extends AbstractApiTest {
     @Story("Создание согласия (listPassports): идемпотентность")
     @Test(dataProvider = "FileDP", dataProviderClass = DataProviders.class, priority = 3)
     public void create_consent_idempotent_same_body_returns_201(TestData testData) {
+        validateCaseFile("create_consent_idempotent_same_body_returns_201");
+        AllureCaseInfo.apply(testData);
         String idempotencyKey = uniqueIdempotencyKey();
         UUID consentUuid = null;
 

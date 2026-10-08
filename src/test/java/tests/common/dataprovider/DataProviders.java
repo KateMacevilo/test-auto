@@ -8,11 +8,12 @@ import org.testng.annotations.DataProvider;
 
 import java.io.IOException;
 import java.lang.reflect.Method;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Objects;
 import java.util.stream.Collectors;
 
 /**
@@ -76,26 +77,27 @@ public class DataProviders {
     }
 
     private static Iterator<Object[]> allCasesFrom(String dir) throws IOException {
-        List<String> fileNames = listJsonFiles(dir);
-        if (fileNames.isEmpty()) {
+        List<Resource> resources = Arrays.stream(
+                        RESOURCE_RESOLVER.getResources("classpath*:/" + dir + "*.json"))
+                .filter(resource -> resource.getFilename() != null)
+                .sorted(Comparator.comparing(Resource::getFilename))
+                .collect(Collectors.toList());
+        if (resources.isEmpty()) {
             throw new IllegalStateException("No test case files (*.json) found in classpath:/" + dir);
         }
         List<Object[]> allCases = new ArrayList<>();
-        for (String fileName : fileNames) {
-            Iterator<Object[]> rows = JSONReader.getTestDataFile(dir + fileName);
+        for (Resource resource : resources) {
+            String fileName = dir + resource.getFilename();
+            // валидация ДО десериализации: Gson молча игнорирует неизвестные поля —
+            // опечатка в ключе дала бы тихи неправильный прогон (см. TestDataValidator)
+            String raw = new String(resource.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+            TestDataValidator.validate(raw, null, fileName);
+            Iterator<Object[]> rows = JSONReader.getTestDataFile(fileName);
             if (rows == null) {
-                throw new IllegalStateException("Failed to read test data file: /" + dir + fileName);
+                throw new IllegalStateException("Failed to read test data file: /" + fileName);
             }
             rows.forEachRemaining(allCases::add);
         }
         return allCases.iterator();
-    }
-
-    private static List<String> listJsonFiles(String dir) throws IOException {
-        return Arrays.stream(RESOURCE_RESOLVER.getResources("classpath*:/" + dir + "*.json"))
-                .map(Resource::getFilename)
-                .filter(Objects::nonNull)
-                .sorted()
-                .collect(Collectors.toList());
     }
 }
