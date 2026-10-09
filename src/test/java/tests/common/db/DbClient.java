@@ -6,7 +6,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.SimpleDriverDataSource;
 import org.springframework.stereotype.Component;
 
-import java.util.ArrayList;
+import java.sql.Types;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -91,6 +91,11 @@ public class DbClient {
      * доводит созданное через API согласие до нужного состояния (напр. меняет статус).
      * Ключ строки — как в findRows: uuid в основной таблице, list_passports_payment_consent_uuid
      * в дочерних. Возвращает число обновлённых строк — 0 означает, что строки нет (падение в тесте).
+     *
+     * Значения приходят из JSON строками. Передаём их с типом OTHER (unknown): тогда PostgreSQL
+     * сам приводит литерал к типу колонки (varchar, timestamp, boolean, numeric, uuid, jsonb).
+     * Обычный setString ушёл бы как varchar и падал бы на не-varchar колонках
+     * ("column ... is of type timestamp without time zone but expression is of type character varying").
      */
     public int updateColumns(String table, Map<String, String> columns, UUID consentUuid) {
         String keyColumn = TABLE_CONSENT.equals(table) ? COL_UUID : COL_CONSENT_UUID;
@@ -98,11 +103,15 @@ public class DbClient {
                 .map(DbClient::validateIdentifier)
                 .map(column -> column + " = ?")
                 .collect(Collectors.joining(", "));
-        List<Object> args = new ArrayList<>(columns.values());
-        args.add(consentUuid);
         int updated = jdbcTemplate.update(
                 "UPDATE " + validateIdentifier(table) + " SET " + setClause + " WHERE " + keyColumn + " = ?",
-                args.toArray());
+                (org.springframework.jdbc.core.PreparedStatementSetter) ps -> {
+                    int index = 1;
+                    for (String value : columns.values()) {
+                        ps.setObject(index++, value, Types.OTHER);
+                    }
+                    ps.setObject(index, consentUuid);
+                });
         log.info("Updated {} row(s) in {} (consent {})", updated, table, consentUuid);
         return updated;
     }
