@@ -65,22 +65,28 @@ public class DataProviders {
      */
     @DataProvider(name = "AllFilesDP")
     public static Iterator<Object[]> allFilesDP(Method method) throws IOException {
+        return allCasesFrom(CASES_DIR, caseFilesPrefix(method));
+    }
+
+    /**
+     * Доработка: кейсы с заглушками WireMock из testdata/wiremock/ — префикс имён файлов
+     * из аннотации @CaseFiles метода (create_consent* для Tests.createConsentWithWireMock,
+     * get_consent* для Tests.getConsentWithWireMock). Формат файлов тот же, что у AllFilesDP.
+     */
+    @DataProvider(name = "WireMockDP")
+    public static Iterator<Object[]> wireMockDP(Method method) throws IOException {
+        return allCasesFrom(WIREMOCK_CASES_DIR, caseFilesPrefix(method));
+    }
+
+    /** Префикс имён файлов кейсов из @CaseFiles метода — аннотация обязательна у методов с этими провайдерами. */
+    private static String caseFilesPrefix(Method method) {
         CaseFiles caseFiles = method.getAnnotation(CaseFiles.class);
         if (caseFiles == null) {
             throw new IllegalStateException(
                     "Method " + method.getDeclaringClass().getName() + "#" + method.getName()
-                            + " uses AllFilesDP but has no @CaseFiles annotation");
+                            + " uses AllFilesDP/WireMockDP but has no @CaseFiles annotation");
         }
-        return allCasesFrom(CASES_DIR, caseFiles.value());
-    }
-
-    /**
-     * Доработка: кейсы с заглушками WireMock из testdata/wiremock/ — отдельный пакет
-     * для метода Tests.createConsentWithWireMock. Формат файлов тот же, что у AllFilesDP.
-     */
-    @DataProvider(name = "WireMockDP")
-    public static Iterator<Object[]> wireMockDP() throws IOException {
-        return allCasesFrom(WIREMOCK_CASES_DIR, null);
+        return caseFiles.value();
     }
 
     private static Iterator<Object[]> allCasesFrom(String dir, String filePrefix) throws IOException {

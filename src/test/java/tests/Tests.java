@@ -83,19 +83,12 @@ public class Tests extends AbstractApiTest {
 
     /**
      * GET согласия (listPassports) — универсальный раннер (AllFilesDP): берутся файлы
-     * testdata/get_consent*.json — префикс из аннотации @CaseFiles метода.
-     * Кейс предполагает, что запись есть в БД, поэтому раннер сам создаёт согласие
-     * ДЕФОЛТНЫМ позитивным запросом (testdata/default/create_consent.json) — input GET-кейса
-     * описывает только сам GET-запрос (заголовки, path), а его expected — ТОЛЬКО финальный
-     * ответ GET. Поток:
-     * Шаг 1: POST — создание согласия дефолтным кейсом (валидируется по ЕГО expected);
-     * Шаг 2: подготовка БД (dbSetup) — доводит запись до состояния, недостижимого
-     *        через API создания (напр. меняет статус) — разные значения = разные кейсы;
-     * Шаг 3: тестируемый вызов — GET /api/paymentConsents/listPassports/{consentId}
-     *        (input.path: "{consentId}" — созданное согласие, "{randomUuid}" — случайный id);
-     * Шаг 4: сверка ответа (статус, схема, params) и БД (expected.dbParams);
-     * запись удаляется в finally (cleanupConsent).
-     * Поле expected.dbState не используется — созданная запись всегда чистится в конце.
+     * testdata/get_consent*.json — префикс из аннотации @CaseFiles метода. Тело прогона —
+     * {@link #runGetConsentScenario(TestData)} (общее с getConsentWithWireMock). GET-кейс
+     * предполагает, что запись есть в БД, поэтому раннер сам создаёт согласие ДЕФОЛТНЫМ
+     * позитивным запросом (testdata/default/create_consent.json) — input GET-кейса описывает
+     * только сам GET-запрос (заголовки, path), а его expected — ТОЛЬКО финальный
+     * ответ GET. createConsent=false — одношаговые негативные кейсы без создания.
      */
     @Link(name = "api-listpassportsconsent [Confluence]", url = CONFLUENCE)
     @Story("Получение согласия (listPassports)")
@@ -103,53 +96,120 @@ public class Tests extends AbstractApiTest {
     @Test(dataProvider = "AllFilesDP", dataProviderClass = DataProviders.class, priority = 3)
     public void getConsent(TestData testData) {
         AllureCaseInfo.apply(testData);
+        runGetConsentScenario(testData);
+    }
+
+    /**
+     * Тело прогона GET-кейса (без AllureCaseInfo) — общее для getConsent и getConsentWithWireMock.
+     * Если в кейсе createConsent=false, создание пропускается — для одношаговых негативных
+     * кейсов валидации заголовков/параметров, где запрос отклоняется до обращения к БД
+     * (путь тогда — "{randomUuid}", подмена x-jwt-assertion — плейсхолдером в headers).
+     * Идентичность приложения (apikey/clientId) задаётся прямо значением заголовка
+     * x-jwt-assertion в headers кейса — оно пробрасывается и в предсоздание
+     * (см. createCaseFor), чтобы согласие создавалось и читалось под одной идентичностью.
+     */
+    private void runGetConsentScenario(TestData testData) {
+        boolean withCreate = !Boolean.FALSE.equals(testData.getCreateConsent());
+        if (!withCreate && testData.getDbSetup() != null) {
+            throw new IllegalStateException("Case '" + testData.getName() + "' combines createConsent=false with dbSetup"
+                    + " — dbSetup updates a consent created at step 1, creation is skipped");
+        }
         String idempotencyKey = uniqueIdempotencyKey();
         UUID consentUuid = null;
 
         try {
-            // Шаг 1: согласие создаётся через API дефолтным позитивным запросом —
-            // GET-кейс предполагает, что запись уже есть в БД
-            step("Шаг 1: POST — создание согласия дефолтным запросом, к которому обращаемся через GET",
-                    () -> postConsentAndVerifyCreated(defaultCreateCase(), idempotencyKey));
-            consentUuid = dbClient.findConsentUuidByIdempotencyKey(idempotencyKey)
-                    .orElseThrow(() -> new AssertionError(
-                            "Consent not found in DB for idempotency key " + idempotencyKey));
+            if (withCreate) {
+                // Шаг 1: согласие создаётся через API дефолтным позитивным запросом —
+                // GET-кейс предполагает, что запись уже есть в БД
+                step("Шаг 1: POST — создание согласия дефолтным запросом, к которому обращаемся через GET",
+                        () -> postConsentAndVerifyCreated(createCaseFor(testData), idempotencyKey));
+                consentUuid = dbClient.findConsentUuidByIdempotencyKey(idempotencyKey)
+                        .orElseThrow(() -> new AssertionError(
+                                "Consent not found in DB for idempotency key " + idempotencyKey));
+            }
             final UUID createdUuid = consentUuid;
 
             // Шаг 2: доводка состояния БД из данных кейса (dbSetup) — напр. установка статуса
             step("Шаг 2: подготовка БД (dbSetup)", () -> applyDbSetup(createdUuid, testData));
 
             // Шаг 3: тестируемый вызов — GET согласия по id
+            final String getPath = resolveGetPath(testData, createdUuid);
             Response response = step("Шаг 3: GET /api/paymentConsents/listPassports/{consentId}",
-                    () -> templateRequest.getPaymentConsent(baseRequest, url,
-                            resolveGetPath(testData, createdUuid), testData.getInput().getHeaders())
-                            .extract().response());
+                    () -> templateRequest.getPaymentConsent(baseRequest, url, getPath,
+                            testData.getInput().getHeaders()).extract().response());
             Assertions.verifyStatusCode(response, testData.getExpected().getStatusCode());
             if (Boolean.TRUE.equals(testData.getExpected().getVerifySchema())) {
                 verifyConsentSchema(response);
             }
             Assertions.verifyResponseParam(response, testData.getExpected().getParams());
+            // UUID для сверок: созданное на шаге 1, для общей фикстуры (createConsent=false) — из пути
+            final UUID checkUuid = dbUuidForChecks(testData, createdUuid, getPath);
             if (testData.getExpected().getStatusCode() < 300) {
                 Assert.assertEquals(response.jsonPath().getString("data.listPassportsConsentId"),
-                        createdUuid.toString(), "GET must return the consent created at step 1");
+                        checkUuid.toString(), "GET must return the consent referenced in input.path");
             }
 
             // Шаг 4: проверка БД (expected.dbParams)
-            verifyDbParams(createdUuid, testData.getExpected().getDbParams());
+            verifyDbParams(checkUuid, testData.getExpected().getDbParams());
         } finally {
             cleanupConsent(consentUuid);
         }
     }
 
     /**
+     * UUID согласия для проверок БД: созданное на шаге 1, а если создание пропущено
+     * (createConsent=false) и dbParams заданы — UUID из пути GET-запроса (литеральный id
+     * общей фикстуры). Очистку фикстура не проходит — cleanupConsent работает только
+     * с согласием, созданным этим кейсом.
+     */
+    private UUID dbUuidForChecks(TestData testData, UUID createdUuid, String getPath) {
+        if (createdUuid != null || testData.getExpected().getDbParams() == null) {
+            return createdUuid;
+        }
+        int idx = getPath.lastIndexOf('/');
+        String id = idx >= 0 ? getPath.substring(idx + 1) : getPath;
+        try {
+            return UUID.fromString(id);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalStateException("Case '" + testData.getName() + "' has dbParams but path '" + getPath
+                    + "' does not end with a consent UUID to check DB against", e);
+        }
+    }
+
+    /**
+     * Дефолтный позитивный запрос создания для GET-кейса: тело/заголовки — из testdata/default/.
+     * Если в кейсе задан заголовок x-jwt-assertion (готовый токен — идентичность apikey/clientId),
+     * он подставляется и в создание — согласие создаётся под той же идентичностью, под которой
+     * идёт GET. defaultCreateCase отдаёт защитную копию, мутация безопасна.
+     */
+    private TestData createCaseFor(TestData testData) {
+        TestData createCase = defaultCreateCase();
+        Map<String, String> caseHeaders = testData.getInput().getHeaders();
+        if (caseHeaders != null && caseHeaders.containsKey("x-jwt-assertion")) {
+            Map<String, String> createHeaders = new HashMap<>(createCase.getInput().getHeaders());
+            createHeaders.put("x-jwt-assertion", caseHeaders.get("x-jwt-assertion"));
+            createCase.getInput().setHeaders(createHeaders);
+        }
+        return createCase;
+    }
+
+    /**
      * Path GET-запроса из данных кейса (input.path): "{consentId}" — согласие, созданное
-     * на шаге 1 (по умолчанию), "{randomUuid}" — случайный UUID (кейсы "запись не найдена").
+     * на шаге 1 (по умолчанию; требует createConsent=true, иначе — ошибка кейса),
+     * "{randomUuid}" — случайный UUID (кейсы "запись не найдена" и валидации заголовков).
      */
     private String resolveGetPath(TestData testData, UUID consentUuid) {
         String path = testData.getInput().getPath() != null
                 ? testData.getInput().getPath() : "{consentId}";
-        return path.replace("{consentId}", consentUuid.toString())
-                .replace("{randomUuid}", UUID.randomUUID().toString());
+        if (consentUuid != null) {
+            return path.replace("{consentId}", consentUuid.toString())
+                    .replace("{randomUuid}", UUID.randomUUID().toString());
+        }
+        if (path.contains("{consentId}")) {
+            throw new IllegalStateException("Case '" + testData.getName() + "' uses {consentId} in input.path"
+                    + " but createConsent=false — creation is skipped, nothing to reference. Use {randomUuid}.");
+        }
+        return path.replace("{randomUuid}", UUID.randomUUID().toString());
     }
 
     /**
@@ -186,12 +246,40 @@ public class Tests extends AbstractApiTest {
      */
     @Link(name = "api-listpassportsconsent [Confluence]", url = CONFLUENCE)
     @Story("Создание согласия (listPassports): WireMock")
+    @CaseFiles("create_consent")
     @Test(dataProvider = "WireMockDP", dataProviderClass = DataProviders.class, priority = 4)
     public void createConsentWithWireMock(TestData testData) {
         AllureCaseInfo.apply(testData);
         if (testData.isLocal() && !wireMockCasesEnabled) {
             throw new SkipException("Локальный WireMock-кейс пропущен: wiremock.cases.enabled=false (прогон в k8s)");
         }
+        runWithWireMock(testData, () -> sendAndVerifyConsent(testData));
+    }
+
+    /**
+     * WireMock-кейсы получения согласия: тело прогона — {@link #runGetConsentScenario(TestData)}
+     * (дефолтное создание → dbSetup → GET) под заглушками даунстримов кейса. Файлы кейсов —
+     * testdata/wiremock/get_consent*.json (префикс из @CaseFiles). Поток и жизненный цикл
+     * стабов — общие с createConsentWithWireMock (см. runWithWireMock).
+     */
+    @Link(name = "api-listpassportsconsent [Confluence]", url = CONFLUENCE)
+    @Story("Получение согласия (listPassports): WireMock")
+    @CaseFiles("get_consent")
+    @Test(dataProvider = "WireMockDP", dataProviderClass = DataProviders.class, priority = 5)
+    public void getConsentWithWireMock(TestData testData) {
+        AllureCaseInfo.apply(testData);
+        if (testData.isLocal() && !wireMockCasesEnabled) {
+            throw new SkipException("Локальный WireMock-кейс пропущен: wiremock.cases.enabled=false (прогон в k8s)");
+        }
+        runWithWireMock(testData, () -> runGetConsentScenario(testData));
+    }
+
+    /**
+     * Общая обвязка WireMock-кейса: стабы → предпроверка (в порядке списка) → счётчики
+     * обращений до → тело кейса → счётчики после: сервис обязан дёрнуть каждый даунстрим
+     * сценария (по приращению счётчика, журнал общий на прогон).
+     */
+    private void runWithWireMock(TestData testData, Runnable scenario) {
         List<Downstream> downstreams = testData.getDownstreams() != null
                 ? testData.getDownstreams() : List.of();
         // Шаг 1: стабы под этот кейс — свои прошлые удаляем, существующие (чужие/наши) не дублируем
@@ -202,7 +290,7 @@ public class Tests extends AbstractApiTest {
         // Шаг 3: сколько раз даунстримы уже дёргались (журнал общий на прогон)
         Map<String, Long> countsBefore = downstreamRequestCounts(downstreams);
         // Шаг 4: сам кейс
-        sendAndVerifyConsent(testData);
+        scenario.run();
         // Шаг 5: сервис обратился к каждому даунстриму сценария (по приращению счётчика)
         Map<String, Long> countsAfter = downstreamRequestCounts(downstreams);
         countsAfter.forEach((downstream, count) -> Assert.assertTrue(count > countsBefore.get(downstream),
@@ -529,6 +617,7 @@ public class Tests extends AbstractApiTest {
         copy.setContentType(input.getContentType());
         copy.setHeaders(input.getHeaders());
         copy.setBody(MAPPER.valueToTree(input.getBody()));
+        copy.setPath(input.getPath());
         return copy;
     }
 }
