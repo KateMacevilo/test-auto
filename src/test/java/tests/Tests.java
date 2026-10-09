@@ -17,6 +17,7 @@ import tests.common.AbstractApiTest;
 import tests.common.allure.AllureCaseInfo;
 import tests.common.assertions.Assertions;
 import tests.common.dataprovider.CaseFiles;
+import tests.common.dataprovider.CaseLoader;
 import tests.common.dataprovider.DataProviders;
 import tests.common.dataprovider.TestDataValidator;
 import tests.common.model.DbSetup;
@@ -56,6 +57,7 @@ public class Tests extends AbstractApiTest {
     private static final String EXPECTED_ERROR_CODE = "BY.Rules.IllegalAttemptOfCreation";
     private static final int EXPECTED_CONFLICT_STATUS = 409;
     private static final BigDecimal AMOUNT_MISMATCH = new BigDecimal("999.99");
+    private static final String DEFAULT_CREATE_CASE = "testdata/default/create_consent.json";
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     @Link(name = "api-listpassportsconsent [Confluence]", url = CONFLUENCE)
@@ -81,9 +83,12 @@ public class Tests extends AbstractApiTest {
 
     /**
      * GET согласия (listPassports) — универсальный раннер (AllFilesDP): берутся файлы
-     * testdata/get_consent*.json — префикс имени файла = имя метода в lower_snake.
-     * Кейс предполагает, что запись есть в БД, поэтому раннер сам создаёт согласие:
-     * Шаг 1: POST — создание согласия (тело и заголовки — из input кейса);
+     * testdata/get_consent*.json — префикс из аннотации @CaseFiles метода.
+     * Кейс предполагает, что запись есть в БД, поэтому раннер сам создаёт согласие
+     * ДЕФОЛТНЫМ позитивным запросом (testdata/default/create_consent.json) — input GET-кейса
+     * описывает только сам GET-запрос (заголовки, path), а его expected — ТОЛЬКО финальный
+     * ответ GET. Поток:
+     * Шаг 1: POST — создание согласия дефолтным кейсом (валидируется по ЕГО expected);
      * Шаг 2: подготовка БД (dbSetup) — доводит запись до состояния, недостижимого
      *        через API создания (напр. меняет статус) — разные значения = разные кейсы;
      * Шаг 3: тестируемый вызов — GET /api/paymentConsents/listPassports/{consentId}
@@ -102,9 +107,10 @@ public class Tests extends AbstractApiTest {
         UUID consentUuid = null;
 
         try {
-            // Шаг 1: согласие создаётся через API — GET-кейс предполагает, что запись уже есть в БД
-            step("Шаг 1: POST — создание согласия, к которому обращаемся через GET",
-                    () -> postConsentAndVerifyCreated(testData, idempotencyKey));
+            // Шаг 1: согласие создаётся через API дефолтным позитивным запросом —
+            // GET-кейс предполагает, что запись уже есть в БД
+            step("Шаг 1: POST — создание согласия дефолтным запросом, к которому обращаемся через GET",
+                    () -> postConsentAndVerifyCreated(defaultCreateCase(), idempotencyKey));
             consentUuid = dbClient.findConsentUuidByIdempotencyKey(idempotencyKey)
                     .orElseThrow(() -> new AssertionError(
                             "Consent not found in DB for idempotency key " + idempotencyKey));
@@ -144,6 +150,24 @@ public class Tests extends AbstractApiTest {
                 ? testData.getInput().getPath() : "{consentId}";
         return path.replace("{consentId}", consentUuid.toString())
                 .replace("{randomUuid}", UUID.randomUUID().toString());
+    }
+
+    /**
+     * Дефолтный позитивный кейс создания согласия — подготовка GET-кейсов (запись должна
+     * быть в БД до GET). Ресурс читается один раз на прогон — лениво, только когда реально
+     * выполняется getConsent (при запуске create-кейсов не трогаем). Подкаталог testdata/default/
+     * вне скана AllFilesDP (classpath*:testdata/*.json не рекурсивен), префикс имени файла
+     * не пересекается с @CaseFiles методов. При каждом вызове возвращается ЗАЩИТНАЯ КОПИЯ:
+     * кэшированный TestData не должен попасть в тесты по ссылке — body общий JsonNode,
+     * мутация отравила бы соседние параметризации.
+     */
+    private static TestData defaultCreateCase;
+
+    private static synchronized TestData defaultCreateCase() {
+        if (defaultCreateCase == null) {
+            defaultCreateCase = CaseLoader.singleCase(DEFAULT_CREATE_CASE);
+        }
+        return MAPPER.convertValue(defaultCreateCase, TestData.class);
     }
 
     /**
@@ -477,8 +501,10 @@ public class Tests extends AbstractApiTest {
     }
 
     private String uniqueIdempotencyKey() {
-        // Уникальный ключ на каждый прогон, чтобы тесты не мешали друг другу и легко чистились из БД
-        return "idem-key-" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"));
+        // Уникальный ключ на каждый вызов (параметризации идут back-to-back): случайный суффикс,
+        // чтобы тесты не мешали друг другу и легко чистились из БД
+        return "idem-key-" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"))
+                + "-" + UUID.randomUUID().toString().substring(0, 8);
     }
 
     /** Возвращает копию input с подставленным уникальным x-idempotency-key. */

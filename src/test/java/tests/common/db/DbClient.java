@@ -108,7 +108,8 @@ public class DbClient {
     }
 
     /** Имена таблиц/колонок подставляются в SQL — пропускаем только простые идентификаторы. */
-    private static String validateIdentifier(String identifier) {        if (identifier == null || !identifier.matches("[a-zA-Z_][a-zA-Z0-9_]*")) {
+    private static String validateIdentifier(String identifier) {
+        if (identifier == null || !identifier.matches("[a-zA-Z_][a-zA-Z0-9_]*")) {
             throw new IllegalArgumentException("Invalid SQL identifier in dbParams: " + identifier);
         }
         return identifier;
