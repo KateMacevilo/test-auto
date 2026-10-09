@@ -16,6 +16,7 @@ import org.testng.annotations.Test;
 import tests.common.AbstractApiTest;
 import tests.common.allure.AllureCaseInfo;
 import tests.common.assertions.Assertions;
+import tests.common.dataprovider.CaseFiles;
 import tests.common.dataprovider.DataProviders;
 import tests.common.dataprovider.TestDataValidator;
 import tests.common.model.DbSetup;
@@ -71,6 +72,7 @@ public class Tests extends AbstractApiTest {
 
     @Link(name = "api-listpassportsconsent [Confluence]", url = CONFLUENCE)
     @Story("Создание согласия (listPassports)")
+    @CaseFiles("create_consent")
     @Test(dataProvider = "AllFilesDP", dataProviderClass = DataProviders.class, priority = 2)
     public void createConsent(TestData testData) {
         AllureCaseInfo.apply(testData);
@@ -78,7 +80,8 @@ public class Tests extends AbstractApiTest {
     }
 
     /**
-     * GET согласия (listPassports) — универсальный раннер по кейсам из testdata/get/.
+     * GET согласия (listPassports) — универсальный раннер (AllFilesDP): берутся файлы
+     * testdata/get_consent*.json — префикс имени файла = имя метода в lower_snake.
      * Кейс предполагает, что запись есть в БД, поэтому раннер сам создаёт согласие:
      * Шаг 1: POST — создание согласия (тело и заголовки — из input кейса);
      * Шаг 2: подготовка БД (dbSetup) — доводит запись до состояния, недостижимого
@@ -91,7 +94,8 @@ public class Tests extends AbstractApiTest {
      */
     @Link(name = "api-listpassportsconsent [Confluence]", url = CONFLUENCE)
     @Story("Получение согласия (listPassports)")
-    @Test(dataProvider = "GetFilesDP", dataProviderClass = DataProviders.class, priority = 3)
+    @CaseFiles("get_consent")
+    @Test(dataProvider = "AllFilesDP", dataProviderClass = DataProviders.class, priority = 3)
     public void getConsent(TestData testData) {
         AllureCaseInfo.apply(testData);
         String idempotencyKey = uniqueIdempotencyKey();
