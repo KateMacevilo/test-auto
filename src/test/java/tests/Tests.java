@@ -31,6 +31,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -58,6 +59,8 @@ public class Tests extends AbstractApiTest {
     private static final int EXPECTED_CONFLICT_STATUS = 409;
     private static final BigDecimal AMOUNT_MISMATCH = new BigDecimal("999.99");
     private static final String DEFAULT_CREATE_CASE = "testdata/default/create_consent.json";
+    private static final String DEFAULT_CREATE_CONSENT_WITH_APIKEY_CASE = "testdata/default/create_consent_with_apikey.json";
+    private static final String APIKEY_ID_CLAIM = "apikeyId";
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     @Link(name = "api-listpassportsconsent [Confluence]", url = CONFLUENCE)
@@ -180,17 +183,37 @@ public class Tests extends AbstractApiTest {
      * Дефолтный позитивный запрос создания для GET-кейса: тело/заголовки — из testdata/default/.
      * Если в кейсе задан заголовок x-jwt-assertion (готовый токен — идентичность apikey/clientId),
      * он подставляется и в создание — согласие создаётся под той же идентичностью, под которой
-     * идёт GET. defaultCreateCase отдаёт защитную копию, мутация безопасна.
+     * идёт GET. Кейс с claim apikeyId в токене готовится отдельным ресурсом
+     * (testdata/default/create_consent_with_apikey.json) — создание с apikey отличается
+     * (проверка прав по apikey_id, итоговый статус). Оба defaultCreateCase отдают защитную
+     * копию, мутация безопасна.
      */
     private TestData createCaseFor(TestData testData) {
-        TestData createCase = defaultCreateCase();
         Map<String, String> caseHeaders = testData.getInput().getHeaders();
-        if (caseHeaders != null && caseHeaders.containsKey("x-jwt-assertion")) {
+        String caseJwt = caseHeaders != null ? caseHeaders.get("x-jwt-assertion") : null;
+        TestData createCase = caseJwt != null && jwtHasClaim(caseJwt, APIKEY_ID_CLAIM)
+                ? defaultCreateCaseWithApikey()
+                : defaultCreateCase();
+        if (caseJwt != null) {
             Map<String, String> createHeaders = new HashMap<>(createCase.getInput().getHeaders());
-            createHeaders.put("x-jwt-assertion", caseHeaders.get("x-jwt-assertion"));
+            createHeaders.put("x-jwt-assertion", caseJwt);
             createCase.getInput().setHeaders(createHeaders);
         }
         return createCase;
+    }
+
+    /** Есть ли claim в payload unsigned JWT (формат header.payload.[signature]). */
+    private static boolean jwtHasClaim(String jwt, String claim) {
+        try {
+            String[] parts = jwt.split("\\.");
+            if (parts.length < 2) {
+                return false;
+            }
+            String payload = new String(Base64.getUrlDecoder().decode(parts[1]));
+            return MAPPER.readTree(payload).has(claim);
+        } catch (IllegalArgumentException | JsonProcessingException e) {
+            return false;
+        }
     }
 
     /**
@@ -228,6 +251,15 @@ public class Tests extends AbstractApiTest {
             defaultCreateCase = CaseLoader.singleCase(DEFAULT_CREATE_CASE);
         }
         return MAPPER.convertValue(defaultCreateCase, TestData.class);
+    }
+
+    private static TestData defaultCreateCaseWithApikey;
+
+    private static synchronized TestData defaultCreateCaseWithApikey() {
+        if (defaultCreateCaseWithApikey == null) {
+            defaultCreateCaseWithApikey = CaseLoader.singleCase(DEFAULT_CREATE_CONSENT_WITH_APIKEY_CASE);
+        }
+        return MAPPER.convertValue(defaultCreateCaseWithApikey, TestData.class);
     }
 
     /**
